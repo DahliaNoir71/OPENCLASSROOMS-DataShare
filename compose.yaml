@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:17.5
+    container_name: datashare-db
+    environment:
+      POSTGRES_DB: datashare
+      POSTGRES_USER: datashare
+      POSTGRES_PASSWORD: datashare_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datashare -d datashare"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  db_data:
