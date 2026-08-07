@@ -1,0 +1,299 @@
+# =============================================================================
+# CI — OPENCLASSROOMS-DataShare
+# =============================================================================
+# Monorepo : backend/ (Laravel 13 / PHP 8.3) + frontend/ (Vue 3 / TypeScript).
+#
+# Complementarite avec .pre-commit-config.yaml :
+#   - les hooks locaux sont une detection PRECOCE, contournable (--no-verify) ;
+#   - cette CI est le garde-fou reel, non contournable, sur chaque PR vers main.
+# Les versions d'outils sont volontairement alignees entre les deux (gitleaks
+# v8.30.0 notamment) pour qu'un run local vert ne puisse pas masquer un
+# pipeline rouge.
+#
+# Choix de commandes — a NE PAS "simplifier" en scripts npm/pint :
+#   - `pint --test` et non `--dirty` : sur un checkout frais aucun fichier
+#     n'est sale, `--dirty` ne verifierait donc rien du tout.
+#   - `npx oxlint` / `npx eslint .` / `prettier --check` et non `npm run lint` :
+#     les scripts package.json embarquent --fix/--write, la CI corrigerait
+#     silencieusement puis sortirait en succes (faux vert).
+#   - `npx vitest run` et non `npm run test:unit` : sans `run`, Vitest passe en
+#     mode watch et le job tourne jusqu'au timeout.
+# =============================================================================
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Annule les runs superposes sur une meme branche (push successifs sur une PR).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Moindre privilege : aucun job n'a besoin d'ecrire sur le depot.
+permissions:
+  contents: read
+
+env:
+  PHP_VERSION: '8.3'
+  NODE_VERSION: '22'
+
+jobs:
+  # ===================================================
+  # Backend — qualite statique
+  # ===================================================
+  backend-quality:
+    name: Backend — qualite
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: ctype, dom, fileinfo, mbstring, openssl, sodium, tokenizer, xml
+          coverage: none
+
+      # Supply chain : composer.lock doit rester synchronise avec composer.json.
+      - name: composer validate
+        run: composer validate --strict --no-check-publish
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer/files
+          key: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-${{ hashFiles('backend/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
+
+      - name: Installer les dependances
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      # --test : verification seule, sortie non nulle si le code n'est pas formate.
+      - name: Laravel Pint
+        run: ./vendor/bin/pint --test
+
+  # ===================================================
+  # Backend — suite PHPUnit sur SQLite ET PostgreSQL
+  # ===================================================
+  # Deux executions :
+  #   sqlite : rejoue exactement la configuration de phpunit.xml (poste de dev).
+  #   pgsql  : parite avec la production (compose.yaml : postgres 17.5).
+  #
+  # Mecanique de la surcharge pgsql : PHPUnit n'ecrase PAS une variable
+  # d'environnement deja definie tant que force="true" n'est pas positionne
+  # dans phpunit.xml. Les variables DB_* posees ci-dessous au niveau du job
+  # priment donc sur les <env> de phpunit.xml. Cette hypothese n'est pas
+  # laissee a la confiance : l'etape "garde-fou" en fin de job la VERIFIE.
+  backend-tests:
+    name: Backend — tests (${{ matrix.database }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, pgsql]
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      # Demarre pour les deux legs de la matrice (GitHub Actions ne permet pas
+      # de conditionner un service) ; le leg sqlite l'ignore simplement.
+      postgres:
+        image: postgres:17.5
+        env:
+          POSTGRES_DB: datashare_test
+          POSTGRES_USER: datashare
+          POSTGRES_PASSWORD: datashare_local
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U datashare -d datashare_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: ctype, dom, fileinfo, mbstring, openssl, sodium, tokenizer, xml, pdo_sqlite, pdo_pgsql
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer/files
+          key: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-${{ hashFiles('backend/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-
+
+      - name: Installer les dependances
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      # APP_KEY est requis des qu'un composant chiffre quoi que ce soit.
+      # JWT_SECRET, lui, est deja fourni par phpunit.xml : la suite est autonome.
+      - name: Preparer .env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      # Deux etapes distinctes plutot qu'une seule avec des variables
+      # conditionnelles : en YAML/Actions, `DB_CONNECTION: ''` DEFINIT la
+      # variable a la chaine vide. PHPUnit la verrait comme deja positionnee,
+      # refuserait d'appliquer son <env>, et Laravel recevrait une connexion
+      # vide au lieu de sqlite. Le leg sqlite ne doit donc poser AUCUNE
+      # variable DB_*.
+      - name: php artisan test (SQLite en memoire)
+        if: matrix.database == 'sqlite'
+        run: php artisan test
+
+      - name: php artisan test (PostgreSQL 17.5)
+        if: matrix.database == 'pgsql'
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: '5432'
+          DB_DATABASE: datashare_test
+          DB_USERNAME: datashare
+          DB_PASSWORD: datashare_local
+        run: php artisan test
+
+      # Garde-fou anti faux-vert : si phpunit.xml avait malgre tout impose
+      # SQLite, la base PostgreSQL serait restee vierge. RefreshDatabase migre
+      # le schema avant les tests, donc la table users DOIT exister ici.
+      - name: Garde-fou — les tests ont bien tourne sur PostgreSQL
+        if: matrix.database == 'pgsql'
+        env:
+          PGPASSWORD: datashare_local
+        run: |
+          if psql -h 127.0.0.1 -U datashare -d datashare_test -tAc \
+               "select to_regclass('public.users') is not null" | grep -qx t; then
+            echo "OK — le schema a bien ete migre sur PostgreSQL."
+          else
+            echo "::error::Les tests n'ont PAS tourne sur PostgreSQL : la table users est absente."
+            echo "::error::phpunit.xml a impose SQLite malgre les variables DB_* du job."
+            exit 1
+          fi
+
+  # ===================================================
+  # Frontend — qualite statique
+  # ===================================================
+  frontend-quality:
+    name: Frontend — qualite
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Installer les dependances
+        run: npm ci
+
+      # oxlint et ESLint sont complementaires, pas redondants : eslint.config.ts
+      # appelle pluginOxlint.buildFromOxlintConfigFile(), qui desactive dans
+      # ESLint les regles deja couvertes par oxlint.
+      - name: oxlint
+        run: npx oxlint
+
+      - name: ESLint
+        run: npx eslint .
+
+      - name: Prettier
+        run: npx prettier --check src/
+
+      - name: vue-tsc
+        run: npm run type-check
+
+  # ===================================================
+  # Frontend — tests unitaires et build
+  # ===================================================
+  # Cypress (e2e) est volontairement absent : seul le test d'exemple du
+  # scaffold existe aujourd'hui. A rebrancher quand un vrai parcours utilisateur
+  # sera implemente.
+  frontend-tests:
+    name: Frontend — tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Installer les dependances
+        run: npm ci
+
+      - name: Vitest
+        run: npx vitest run
+
+      # build-only et non build : `npm run build` reenchaine type-check, deja
+      # couvert par le job frontend-quality.
+      - name: Build de production
+        run: npm run build-only
+
+  # ===================================================
+  # Securite — detection de secrets sur l'historique complet
+  # ===================================================
+  # Complement INDISPENSABLE du hook pre-commit : celui-ci ne scanne que le
+  # diff staged, un secret deja present dans l'historique n'est attrape qu'ici.
+  # Version identique au hook local (v8.30.0) pour eviter toute divergence de
+  # verdict. Execution via l'image Docker officielle : pas de licence requise,
+  # contrairement a gitleaks-action pour les depots d'organisation.
+  security:
+    name: Securite — gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # historique complet, sinon le scan est partiel
+
+      - name: gitleaks detect
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.0 \
+            detect --source=/repo --redact --verbose
+
+  # ===================================================
+  # Agregateur — SEUL check a declarer requis sur main
+  # ===================================================
+  # Pourquoi un job d'agregation plutot que de declarer chaque job requis :
+  #   1. la protection de branche n'a pas a etre reconfiguree a chaque ajout ou
+  #      renommage de job ;
+  #   2. cela rend sûr l'ajout ulterieur de filtres `paths:` — un job filtre
+  #      qui ne demarre pas laisse un check requis en attente indefiniment et
+  #      bloque la PR, alors qu'ici `skipped` est traite comme un succes.
+  ci-ok:
+    name: CI OK
+    if: always()
+    needs: [backend-quality, backend-tests, frontend-quality, frontend-tests, security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verifier qu'aucun job n'a echoue
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::Au moins un job de la CI a echoue ou ete annule."
+          exit 1
+
+      - name: Succes
+        run: echo "Tous les jobs requis sont passes."

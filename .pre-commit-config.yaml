@@ -1,0 +1,205 @@
+# =============================================================================
+# Pre-commit configuration — OPENCLASSROOMS-DataShare (monorepo)
+# =============================================================================
+# Stack reelle du depot :
+#   backend/   Laravel 13 / PHP 8.3  — Composer, Pint, PHPUnit
+#   frontend/  Vue 3 + TypeScript    — npm, oxlint, ESLint, Prettier, vue-tsc
+#   docs/      contrat OpenAPI (docs/openapi.yaml)
+#   compose.yaml : PostgreSQL 17 local
+#
+# Adapte du baseline XOps "complet", elague de ce qui n'existe pas ici :
+# ni Python (ruff/bandit/vulture/uv-lock), ni GitLab CI (check-gitlab-ci),
+# ni pnpm (le frontend est en npm + package-lock.json).
+#
+# Repartition des roles avec la CI (.github/workflows/ci.yml) :
+#   - ces hooks sont la DETECTION PRECOCE, sur le poste de dev. Ils sont
+#     contournables (`git commit --no-verify`) et ne font donc pas foi ;
+#   - la CI est le filet NON CONTOURNABLE : elle rejoue Pint, oxlint/ESLint,
+#     vue-tsc et `php artisan test` sur chaque PR vers main, et c'est elle qui
+#     conditionne le merge via le check requis "CI OK".
+# Les versions des outils partages sont alignees entre les deux fichiers
+# (gitleaks v8.30.0) pour qu'un run local vert ne puisse pas masquer un
+# pipeline rouge. Voir le bloc symetrique en tete de ci.yml.
+#
+# Installation :
+#   pipx install pre-commit        # (deja installe ici)
+#   pre-commit install             # installe les hooks pre-commit ET pre-push
+# Verification :
+#   pre-commit run --all-files
+# =============================================================================
+
+# Installe les deux types de hooks des un simple `pre-commit install`, pour que
+# les gates pre-push (ESLint, vue-tsc, php artisan test) ne soient jamais
+# silencieusement ignorees.
+default_install_hook_types: [pre-commit, pre-push]
+
+# Rattache par defaut chaque hook au stage pre-commit. SANS cette ligne,
+# installer le hook pre-push ci-dessus ferait AUSSI tourner au pre-push tous les
+# hooks sans stage explicite — et les auto-correcteurs qui reecrivent les
+# fichiers (trailing-whitespace, end-of-file-fixer, mixed-line-ending, pint,
+# prettier --write) feraient alors echouer le push. Les gates lentes plus bas
+# reviennent explicitement sur pre-push via `stages: [pre-push]`.
+default_stages: [pre-commit]
+
+repos:
+  # ===================================================
+  # 1. Detection de secrets — Gitleaks
+  # ===================================================
+  # Gate de securite CRITIQUE. backend/.env porte APP_KEY et JWT_SECRET ; il est
+  # bien gitignore, mais gitleaks couvre le cas ou un secret se retrouve dans un
+  # fichier versionne (config, test, doc, fixture).
+  # Portee : diff staged uniquement — un secret DEJA present dans l'historique
+  # ne sera pas vu ici. Pour un audit complet : `gitleaks detect --source .`
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  # ===================================================
+  # 2. Hooks de base — hygiene et validation
+  # ===================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # --- Nettoyage (auto-correcteurs) ---
+      # Les lockfiles sont generes : on n'y touche pas.
+      - id: trailing-whitespace
+        exclude: ^(frontend/package-lock\.json|backend/composer\.lock)$
+      - id: end-of-file-fixer
+        exclude: ^(frontend/package-lock\.json|backend/composer\.lock)$
+
+      # --- Portabilite Windows/WSL <-> Linux ---
+      # Poste de dev sous WSL, depot potentiellement clone sous Windows.
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+        exclude: ^(frontend/package-lock\.json|backend/composer\.lock)$
+
+      # --- Validation des fichiers de configuration ---
+      # YAML versionnes : compose.yaml, docs/openapi.yaml, ce fichier.
+      - id: check-yaml
+      # tsconfig.app/node/vitest.json sont du JSONC (commentaires) : le parser
+      # strict les rejette, d'ou l'exclusion. Verifie sur les 12 JSON versionnes
+      # du depot : ce sont les seuls trois concernes.
+      - id: check-json
+        exclude: (^|/)tsconfig.*\.json$
+
+      # --- Garde-fous commit ---
+      - id: check-merge-conflict
+      # 1024 Ko et non 500 : composer.lock (315 Ko) et package-lock.json
+      # (306 Ko) sont deja proches de la moitie du seuil et vont grossir.
+      - id: check-added-large-files
+        args: ['--maxkb=1024']
+      # Defense en profondeur a cote de gitleaks.
+      - id: detect-private-key
+
+      # Interdit le commit direct sur main : la branche est protegee cote
+      # GitHub (push rejete par le serveur). Ce hook fait echouer le commit
+      # AVANT, au lieu de laisser des commits a deplacer ensuite.
+      - id: no-commit-to-branch
+        args: ['--branch', 'main']
+
+  # ===================================================
+  # 3. Backend Laravel — Pint / Composer / PHPUnit
+  # ===================================================
+  # `language: system` : ces outils viennent de backend/vendor (composer install),
+  # pre-commit ne les gere pas.
+  - repo: local
+    hooks:
+      # --- pre-commit : rapide ---
+      # Pint --dirty se base sur git, pas sur les arguments : d'ou
+      # pass_filenames: false. pre-commit met de cote les modifications non
+      # indexees, donc --dirty voit exactement les fichiers staged.
+      # Il reecrit les fichiers : le hook echoue alors, il suffit de re-`git add`.
+      - id: pint
+        name: Laravel Pint (backend)
+        entry: bash -c 'cd backend && ./vendor/bin/pint --dirty'
+        language: system
+        files: ^backend/.*\.php$
+        pass_filenames: false
+
+      # Supply chain : garantit que composer.lock reste synchronise avec
+      # composer.json. --no-check-publish : le projet n'est pas un paquet publie.
+      - id: composer-validate
+        name: composer validate (backend)
+        entry: bash -c 'cd backend && composer validate --strict --no-check-publish'
+        language: system
+        files: ^backend/composer\.(json|lock)$
+        pass_filenames: false
+
+      # Equivalent PHP du hook `debug-statements` (qui, lui, est Python-only) :
+      # empeche de commiter un dd()/dump()/var_dump() oublie. Heuristique par
+      # regex — en cas de faux positif, elargir l'`exclude` plutot que de
+      # prendre l'habitude du --no-verify.
+      - id: php-debug-statements
+        name: pas de dd()/dump()/var_dump() (backend)
+        entry: bash -c '! grep -nE "(^|[^[:alnum:]_])(dd|dump|var_dump|ray)[[:space:]]*\(" "$@"' --
+        language: system
+        files: ^backend/(app|routes|config|database)/.*\.php$
+
+      # --- pre-push : plus lent, une fois par push ---
+      # La suite est autonome (phpunit.xml : SQLite :memory: + JWT_SECRET de
+      # test), elle ne touche donc jamais la base PostgreSQL de dev.
+      - id: phpunit
+        name: php artisan test (backend)
+        entry: bash -c 'cd backend && php artisan test'
+        language: system
+        files: ^backend/.*\.(php|xml)$
+        pass_filenames: false
+        stages: [pre-push]
+
+  # ===================================================
+  # 4. Frontend Vue 3 — oxlint / Prettier / ESLint / vue-tsc
+  # ===================================================
+  # Prerequis : `npm --prefix frontend install` (fournit les binaires).
+  #
+  # NOTE — tous ces hooks sont en pass_filenames: false, volontairement :
+  # pre-commit passe des chemins relatifs a la RACINE (frontend/src/App.vue),
+  # alors que l'entry fait `cd frontend`. Passer "$@" tel quel resoudrait
+  # frontend/frontend/src/App.vue et casserait le hook. Lancer l'outil sur tout
+  # le projet evite ce piege et reste rapide (cache oxlint/ESLint).
+  - repo: local
+    hooks:
+      # --- pre-commit : rapide (Rust, quelques ms) ---
+      # Complementaire d'ESLint et NON redondant : eslint.config.ts appelle
+      # pluginOxlint.buildFromOxlintConfigFile(), qui DESACTIVE dans ESLint les
+      # regles couvertes par oxlint. Sans ce hook, ces regles ne seraient
+      # verifiees par personne.
+      # Pour un alignement strict avec un futur job CI : ajouter --deny-warnings
+      # (a valider d'abord sur la base existante, sous peine de bloquer tous les
+      # commits sur des warnings preexistants).
+      - id: frontend-oxlint
+        name: oxlint (frontend)
+        entry: bash -c 'cd frontend && npx oxlint'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs|vue)$
+        pass_filenames: false
+
+      # Reecrit les fichiers ; cible src/, comme le script `format`.
+      - id: frontend-prettier
+        name: prettier --write (frontend/src)
+        entry: bash -c 'cd frontend && npx prettier --write src/'
+        language: system
+        files: ^frontend/src/.*\.(ts|vue|css|json)$
+        pass_filenames: false
+
+      # --- pre-push : plus lent (lint JS / build de types) ---
+      # Verification seule (pas de --fix au pre-push : un auto-correcteur qui
+      # reecrit des fichiers ferait echouer le push). --cache accelere les
+      # relances.
+      - id: frontend-eslint
+        name: eslint (frontend)
+        entry: bash -c 'cd frontend && npx eslint . --cache'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs|vue)$
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Les erreurs de typage echappent totalement a ESLint et a oxlint.
+      - id: frontend-typecheck
+        name: vue-tsc type-check (frontend)
+        entry: bash -c 'cd frontend && npm run type-check'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|vue)$
+        pass_filenames: false
+        stages: [pre-push]
