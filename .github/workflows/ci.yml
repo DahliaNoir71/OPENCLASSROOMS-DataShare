@@ -3,21 +3,51 @@
 # =============================================================================
 # Monorepo : backend/ (Laravel 13 / PHP 8.3) + frontend/ (Vue 3 / TypeScript).
 #
-# Complementarite avec .pre-commit-config.yaml :
-#   - les hooks locaux sont une detection PRECOCE, contournable (--no-verify) ;
-#   - cette CI est le garde-fou reel, non contournable, sur chaque PR vers main.
-# Les versions d'outils sont volontairement alignees entre les deux (gitleaks
-# v8.30.0 notamment) pour qu'un run local vert ne puisse pas masquer un
-# pipeline rouge.
+# Structure transposee des pipelines DevSecOps de reference (GitLab) vers
+# GitHub Actions. Ce qui a un equivalent reel a ete repris ; ce qui n'en a pas
+# est documente en fin d'en-tete plutot que singe.
 #
-# Choix de commandes — a NE PAS "simplifier" en scripts npm/pint :
-#   - `pint --test` et non `--dirty` : sur un checkout frais aucun fichier
-#     n'est sale, `--dirty` ne verifierait donc rien du tout.
-#   - `npx oxlint` / `npx eslint .` / `prettier --check` et non `npm run lint` :
-#     les scripts package.json embarquent --fix/--write, la CI corrigerait
-#     silencieusement puis sortirait en succes (faux vert).
-#   - `npx vitest run` et non `npm run test:unit` : sans `run`, Vitest passe en
-#     mode watch et le job tourne jusqu'au timeout.
+# -- QUI TOURNE QUAND --------------------------------------------------------
+#   Job                | PR -> main | push main | dispatch | Bloquant ?
+#   -------------------|------------|-----------|----------|----------------
+#   backend-quality    |     v      |     v     |    v     | oui
+#   backend-tests      |     v      |     v     |    v     | oui (x2 : sqlite+pgsql)
+#   frontend-quality   |     v      |     v     |    v     | oui
+#   frontend-tests     |     v      |     v     |    v     | oui
+#   security           |     v      |     v     |    v     | oui
+#   ci-ok              |     v      |     v     |    v     | SEUL check requis
+#
+# -- COMPLEMENTARITE AVEC .pre-commit-config.yaml ----------------------------
+#   Les hooks locaux sont la detection PRECOCE, contournable (--no-verify).
+#   Cette CI est le filet non contournable. Les versions des outils partages
+#   sont alignees des deux cotes (gitleaks v8.30.0) : un run local vert ne peut
+#   pas masquer un pipeline rouge.
+#   Asymetrie assumee : les hooks corrigent (--fix / --write), la CI verifie
+#   seulement (--test / --check). Un correcteur en CI reecrirait un runner
+#   jetable puis sortirait en succes — un faux vert.
+#
+# -- CHOIX DE COMMANDES, a NE PAS "simplifier" en scripts npm/pint -----------
+#   pint --test        et non --dirty  : sur un checkout frais aucun fichier
+#                                        n'est sale, --dirty ne verifierait rien.
+#   npx oxlint / eslint et non npm run lint : les scripts embarquent --fix.
+#   npx vitest run      et non npm run test:unit : sans `run`, Vitest passe en
+#                                        mode watch et le job atteint le timeout.
+#
+# -- EPINGLAGE (supply chain) ------------------------------------------------
+#   Toutes les actions sont epinglees par SHA de commit, pas par tag : un tag
+#   est mutable, un SHA non. Le tag lisible est conserve en commentaire.
+#   Rafraichir : git ls-remote --tags --refs https://github.com/<owner>/<repo>
+#   L'image gitleaks est epinglee par digest, identique au hook pre-commit.
+#   Digest verifie via : docker buildx imagetools inspect zricethezav/gitleaks:v8.30.0
+#
+# -- NON TRANSPOSE, et pourquoi ----------------------------------------------
+#   * `workflow: rules` / $CI_OPEN_MERGE_REQUESTS : GitHub ne cree pas de
+#     double pipeline branche+MR ; le couple push:main / pull_request:main suffit.
+#   * `retry: when: [runner_system_failure]` : GitHub Actions n'a pas de retry
+#     natif au niveau job. Relance manuelle via "Re-run failed jobs".
+#   * SonarQube, Trivy fs, OSV-Scanner : pas d'instance ni de besoin etabli ici.
+#     `composer audit` et `npm audit` couvrent le SCA a cout nul (voir plus bas).
+#   * Ratchet de couverture : aucune couverture n'est encore collectee.
 # =============================================================================
 
 name: CI
@@ -28,19 +58,32 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      gate_selftest:
+        description: "Auto-test des gates : prouve qu'elles peuvent virer au rouge"
+        type: boolean
+        default: false
 
-# Annule les runs superposes sur une meme branche (push successifs sur une PR).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Moindre privilege : aucun job n'a besoin d'ecrire sur le depot.
 permissions:
   contents: read
+
+defaults:
+  run:
+    # `shell: bash` explicite active `-o pipefail`, absent du shell par defaut
+    # (`bash -e`). Sans lui, dans `scanner | tee`, seul le code de tee compte et
+    # un scanner en echec passerait inapercu — l'equivalent GitHub du bug de
+    # "silent pass" documente dans les pipelines de reference.
+    shell: bash
 
 env:
   PHP_VERSION: '8.3'
   NODE_VERSION: '22'
+  POSTGRES_VERSION: '17.5'
+  GITLEAKS_IMAGE: 'zricethezav/gitleaks:v8.30.0@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9'
 
 jobs:
   # ===================================================
@@ -49,14 +92,16 @@ jobs:
   backend-quality:
     name: Backend — qualite
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
+        shell: bash
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Installer PHP ${{ env.PHP_VERSION }}
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ env.PHP_VERSION }}
           extensions: ctype, dom, fileinfo, mbstring, openssl, sodium, tokenizer, xml
@@ -67,7 +112,7 @@ jobs:
         run: composer validate --strict --no-check-publish
 
       - name: Cache Composer
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/composer/files
           key: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-${{ hashFiles('backend/composer.lock') }}
@@ -76,35 +121,44 @@ jobs:
       - name: Installer les dependances
         run: composer install --prefer-dist --no-progress --no-interaction
 
-      # --test : verification seule, sortie non nulle si le code n'est pas formate.
       - name: Laravel Pint
         run: ./vendor/bin/pint --test
+
+      # SCA backend. NON BLOQUANT pour l'instant : le projet demarre et une
+      # advisory transitive ne doit pas bloquer le lot en cours.
+      # RATCHET : une fois ce job vert de maniere stable, SUPPRIMER la ligne
+      # continue-on-error ci-dessous pour en faire une gate dure.
+      - name: composer audit (non bloquant)
+        continue-on-error: true
+        run: composer audit --format=plain
 
   # ===================================================
   # Backend — suite PHPUnit sur SQLite ET PostgreSQL
   # ===================================================
   # Deux executions :
   #   sqlite : rejoue exactement la configuration de phpunit.xml (poste de dev).
-  #   pgsql  : parite avec la production (compose.yaml : postgres 17.5).
+  #   pgsql  : parite avec la production (compose.yaml).
   #
   # Mecanique de la surcharge pgsql : PHPUnit n'ecrase PAS une variable
   # d'environnement deja definie tant que force="true" n'est pas positionne
-  # dans phpunit.xml. Les variables DB_* posees ci-dessous au niveau du job
-  # priment donc sur les <env> de phpunit.xml. Cette hypothese n'est pas
-  # laissee a la confiance : l'etape "garde-fou" en fin de job la VERIFIE.
+  # dans phpunit.xml. Les variables DB_* posees au niveau de l'etape priment
+  # donc sur les <env> de phpunit.xml. Cette hypothese n'est pas laissee a la
+  # confiance : l'etape "garde-fou" en fin de job la VERIFIE.
   backend-tests:
     name: Backend — tests (${{ matrix.database }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         database: [sqlite, pgsql]
     defaults:
       run:
+        shell: bash
         working-directory: backend
     services:
-      # Demarre pour les deux legs de la matrice (GitHub Actions ne permet pas
-      # de conditionner un service) ; le leg sqlite l'ignore simplement.
+      # Demarre pour les deux legs (Actions ne permet pas de conditionner un
+      # service) ; le leg sqlite l'ignore simplement.
       postgres:
         image: postgres:17.5
         env:
@@ -119,17 +173,17 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Installer PHP ${{ env.PHP_VERSION }}
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ env.PHP_VERSION }}
           extensions: ctype, dom, fileinfo, mbstring, openssl, sodium, tokenizer, xml, pdo_sqlite, pdo_pgsql
           coverage: none
 
       - name: Cache Composer
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/composer/files
           key: composer-${{ runner.os }}-php${{ env.PHP_VERSION }}-${{ hashFiles('backend/composer.lock') }}
@@ -139,23 +193,22 @@ jobs:
         run: composer install --prefer-dist --no-progress --no-interaction
 
       # APP_KEY est requis des qu'un composant chiffre quoi que ce soit.
-      # JWT_SECRET, lui, est deja fourni par phpunit.xml : la suite est autonome.
+      # JWT_SECRET est deja fourni par phpunit.xml : la suite est autonome.
       - name: Preparer .env
         run: |
           cp .env.example .env
           php artisan key:generate
 
-      # Deux etapes distinctes plutot qu'une seule avec des variables
-      # conditionnelles : en YAML/Actions, `DB_CONNECTION: ''` DEFINIT la
-      # variable a la chaine vide. PHPUnit la verrait comme deja positionnee,
-      # refuserait d'appliquer son <env>, et Laravel recevrait une connexion
-      # vide au lieu de sqlite. Le leg sqlite ne doit donc poser AUCUNE
-      # variable DB_*.
+      # Deux etapes distinctes plutot qu'une seule avec variables
+      # conditionnelles : en Actions, `DB_CONNECTION: ''` DEFINIT la variable a
+      # la chaine vide. PHPUnit la verrait comme deja positionnee, refuserait
+      # d'appliquer son <env>, et Laravel recevrait une connexion vide au lieu
+      # de sqlite. Le leg sqlite ne doit poser AUCUNE variable DB_*.
       - name: php artisan test (SQLite en memoire)
         if: matrix.database == 'sqlite'
-        run: php artisan test
+        run: php artisan test --log-junit=junit.xml
 
-      - name: php artisan test (PostgreSQL 17.5)
+      - name: php artisan test (PostgreSQL ${{ env.POSTGRES_VERSION }})
         if: matrix.database == 'pgsql'
         env:
           DB_CONNECTION: pgsql
@@ -164,11 +217,26 @@ jobs:
           DB_DATABASE: datashare_test
           DB_USERNAME: datashare
           DB_PASSWORD: datashare_local
-        run: php artisan test
+        run: php artisan test --log-junit=junit.xml
+
+      # Garde-fou "empty scan" : une suite qui n'execute AUCUN test sort en
+      # succes. Un filtre casse ou un mauvais chemin donnerait alors un vert
+      # portant sur rien. On exige au moins un cas execute.
+      - name: Garde-fou — la suite a bien execute des tests
+        run: |
+          php -r '
+            $f = "junit.xml";
+            if (!is_file($f)) { fwrite(STDERR, "[FAIL] junit.xml absent\n"); exit(1); }
+            $x = simplexml_load_file($f);
+            $n = (int) $x["tests"];
+            if ($n < 1) { fwrite(STDERR, "[FAIL] 0 test execute — suite vide\n"); exit(1); }
+            echo "[OK] {$n} tests executes\n";
+          '
 
       # Garde-fou anti faux-vert : si phpunit.xml avait malgre tout impose
       # SQLite, la base PostgreSQL serait restee vierge. RefreshDatabase migre
-      # le schema avant les tests, donc la table users DOIT exister ici.
+      # le schema avant les tests (cf. DatabaseSmokeTest), donc la table users
+      # DOIT exister ici.
       - name: Garde-fou — les tests ont bien tourne sur PostgreSQL
         if: matrix.database == 'pgsql'
         env:
@@ -176,10 +244,10 @@ jobs:
         run: |
           if psql -h 127.0.0.1 -U datashare -d datashare_test -tAc \
                "select to_regclass('public.users') is not null" | grep -qx t; then
-            echo "OK — le schema a bien ete migre sur PostgreSQL."
+            echo "[OK] le schema a bien ete migre sur PostgreSQL."
           else
             echo "::error::Les tests n'ont PAS tourne sur PostgreSQL : la table users est absente."
-            echo "::error::phpunit.xml a impose SQLite malgre les variables DB_* du job."
+            echo "::error::phpunit.xml a impose SQLite malgre les variables DB_* de l'etape."
             exit 1
           fi
 
@@ -189,14 +257,16 @@ jobs:
   frontend-quality:
     name: Frontend — qualite
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     defaults:
       run:
+        shell: bash
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Installer Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -208,6 +278,8 @@ jobs:
       # oxlint et ESLint sont complementaires, pas redondants : eslint.config.ts
       # appelle pluginOxlint.buildFromOxlintConfigFile(), qui desactive dans
       # ESLint les regles deja couvertes par oxlint.
+      # Parite possible avec le hook local : ajouter --deny-warnings une fois
+      # verifie que la base existante passe sans avertissement.
       - name: oxlint
         run: npx oxlint
 
@@ -220,23 +292,30 @@ jobs:
       - name: vue-tsc
         run: npm run type-check
 
+      # SCA frontend. NON BLOQUANT — meme RATCHET que composer audit :
+      # supprimer continue-on-error une fois le job stable au vert.
+      - name: npm audit (non bloquant)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
   # ===================================================
   # Frontend — tests unitaires et build
   # ===================================================
-  # Cypress (e2e) est volontairement absent : seul le test d'exemple du
-  # scaffold existe aujourd'hui. A rebrancher quand un vrai parcours utilisateur
-  # sera implemente.
+  # Cypress (e2e) volontairement absent : seul le test d'exemple du scaffold
+  # existe. A rebrancher quand un vrai parcours utilisateur sera implemente.
   frontend-tests:
     name: Frontend — tests
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     defaults:
       run:
+        shell: bash
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Installer Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -249,7 +328,7 @@ jobs:
         run: npx vitest run
 
       # build-only et non build : `npm run build` reenchaine type-check, deja
-      # couvert par le job frontend-quality.
+      # couvert par frontend-quality.
       - name: Build de production
         run: npm run build-only
 
@@ -258,36 +337,85 @@ jobs:
   # ===================================================
   # Complement INDISPENSABLE du hook pre-commit : celui-ci ne scanne que le
   # diff staged, un secret deja present dans l'historique n'est attrape qu'ici.
-  # Version identique au hook local (v8.30.0) pour eviter toute divergence de
-  # verdict. Execution via l'image Docker officielle : pas de licence requise,
-  # contrairement a gitleaks-action pour les depots d'organisation.
   security:
     name: Securite — gitleaks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # historique complet, sinon le scan est partiel
 
-      - name: gitleaks detect
+      # Ligne d'audit structuree : trace QUEL controle a tourne, QUAND, sur quel
+      # commit et avec quelle version de la configuration. `|| true` : une ligne
+      # d'audit malformee ne doit JAMAIS faire echouer une gate.
+      - name: Ligne d'audit
         run: |
-          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.0 \
-            detect --source=/repo --redact --verbose
+          printf '[AUDIT] ts=%s | run=%s | repo=%s | ref=%s | sha=%s | config_hash=%s | job=%s | event=security_scan_start\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${GITHUB_RUN_ID}" "${GITHUB_REPOSITORY}" \
+            "${GITHUB_REF_NAME}" "${GITHUB_SHA:0:8}" \
+            "$(sha256sum .github/workflows/ci.yml | cut -c1-16)" "${GITHUB_JOB}" || true
+
+      # Le scanner et la capture de son code de sortie restent dans le MEME
+      # bloc : toute commande intercalee ecraserait $?.
+      # Auto-test (workflow_dispatch, gate_selftest=true) : injecte un code non
+      # nul en position scanner et verifie qu'il se propage. Sans cette preuve,
+      # rien ne garantit que la gate sache virer au rouge.
+      - name: gitleaks detect
+        env:
+          GATE_SELFTEST: ${{ inputs.gate_selftest }}
+        run: |
+          set +e
+          if [ "${GATE_SELFTEST}" = "true" ]; then
+            echo "[SELFTEST] injection d'un code non nul en position scanner"
+            ( exit 42 )
+          else
+            docker run --rm -v "${PWD}:/repo" "${GITLEAKS_IMAGE}" \
+              detect --source=/repo --redact --verbose \
+              --report-format json --report-path /repo/gitleaks-report.json
+          fi
+          GATE_STATUS=$?
+          set -e
+
+          if [ "${GATE_SELFTEST}" = "true" ]; then
+            if [ "${GATE_STATUS}" -eq 0 ]; then
+              echo "::error::[SELFTEST-FAIL] code non nul avale — cette gate passerait au vert sur une vraie fuite"
+              exit 1
+            fi
+            echo "[SELFTEST-OK] code propage (GATE_STATUS=${GATE_STATUS}) — contrat de la gate verifie"
+            exit 0
+          fi
+
+          if [ "${GATE_STATUS}" -ne 0 ]; then
+            echo "::error::[ALERTE] secrets detectes — revoquer immediatement toute credential exposee"
+            exit 1
+          fi
+          echo "[OK] aucun secret detecte"
+
+      - name: Rapport gitleaks
+        if: always() && inputs.gate_selftest != true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   # ===================================================
   # Agregateur — SEUL check a declarer requis sur main
   # ===================================================
-  # Pourquoi un job d'agregation plutot que de declarer chaque job requis :
+  # Pourquoi un agregateur plutot que de declarer chaque job requis :
   #   1. la protection de branche n'a pas a etre reconfiguree a chaque ajout ou
   #      renommage de job ;
-  #   2. cela rend sûr l'ajout ulterieur de filtres `paths:` — un job filtre
-  #      qui ne demarre pas laisse un check requis en attente indefiniment et
-  #      bloque la PR, alors qu'ici `skipped` est traite comme un succes.
+  #   2. cela rend sûr l'ajout ulterieur de filtres `paths:` — un job filtre qui
+  #      ne demarre pas laisse un check requis en attente indefiniment et bloque
+  #      la PR, alors qu'ici `skipped` est traite comme un succes.
   ci-ok:
     name: CI OK
     if: always()
     needs: [backend-quality, backend-tests, frontend-quality, frontend-tests, security]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Verifier qu'aucun job n'a echoue
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
