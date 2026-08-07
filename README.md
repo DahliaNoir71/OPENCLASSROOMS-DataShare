@@ -1,42 +1,84 @@
 # DataShare
 
-> **TODO** — Décrire en une à deux phrases la finalité fonctionnelle de l'application
-> (quel besoin, pour quels utilisateurs). Projet réalisé dans le cadre du parcours
-> OpenClassrooms.
+DataShare permet de transmettre un fichier volumineux sans le joindre à un
+courriel : un utilisateur authentifié dépose un fichier (1 Go maximum) et
+obtient en retour un lien de téléchargement temporaire, valable 7 jours au plus
+et protégeable par mot de passe. À l'échéance le lien cesse immédiatement de
+fonctionner, et le fichier est effacé du disque à la purge quotidienne suivante.
+Projet réalisé dans le cadre du parcours OpenClassrooms.
+
+## Documentation de conception
+
+Les documents de [`docs/`](docs/) font autorité sur les choix fonctionnels et
+techniques ; le présent README ne traite que de la mise en route.
+
+| Document | Contenu |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | Composants, flux, décisions techniques et limites du scheduler |
+| [docs/mcd.md](docs/mcd.md) | MCD (Merise) et MLD, contraintes, index, décisions de modélisation |
+| [docs/openapi.yaml](docs/openapi.yaml) | Contrat d'API (OpenAPI 3.1) — 7 opérations |
+
+Le contrat d'API se valide avec :
+
+```bash
+npx @redocly/cli lint docs/openapi.yaml
+```
 
 ## État du projet
 
-Projet en cours d'initialisation. Le squelette technique est en place ; le domaine
-fonctionnel n'est pas encore implémenté.
+La conception fonctionnelle et technique est arrêtée ; l'implémentation du
+domaine métier n'est pas commencée.
 
 | Brique | État |
 | --- | --- |
 | Backend Laravel (squelette, migrations `users` / `cache` / `jobs`) | ✅ initialisé |
 | Base de données PostgreSQL via Docker Compose | ✅ opérationnelle |
-| Modèle de données métier | ⬜ à concevoir |
-| API | ⬜ à concevoir |
-| Frontend (`frontend/`) | ⬜ stack à définir |
-| Documentation (`docs/`) | ⬜ vide |
+| Frontend Vue 3 + TypeScript (`frontend/`) | ✅ initialisé |
+| Architecture technique | ✅ documentée |
+| Modèle de données métier | 🟡 conçu — migrations à écrire |
+| Contrat d'API | 🟡 conçu — routes et contrôleurs à écrire |
+| Authentification JWT | 🟡 décidée — aucun paquet installé |
 | Intégration continue | ⬜ absente |
 
 ## Stack technique
 
+### Backend
+
 | Composant | Version | Rôle |
 | --- | --- | --- |
 | PHP | ^8.3 | Langage backend |
-| Laravel | ^13.8 | Framework backend |
+| Laravel | ^13.8 | Framework de l'API REST |
 | PostgreSQL | 17.5 | Base de données (conteneur Docker) |
-| Vite | ^8.0 | Build des assets |
-| Tailwind CSS | ^4.0 | Feuilles de style |
 | PHPUnit | ^12.5 | Tests automatisés |
 | Laravel Pint | ^1.27 | Formatage du code PHP |
 | Laravel Pail | ^1.2 | Lecture des logs en direct |
+| Vite | ^8.0 | Build des assets du squelette Laravel |
+| Tailwind CSS | ^4.0 | Feuilles de style du squelette Laravel |
+
+Les deux dernières lignes concernent les assets Blade livrés par le squelette,
+pas l'interface utilisateur : celle-ci est servie par `frontend/`, qui possède
+sa propre chaîne de build.
+
+### Frontend
+
+| Composant | Version | Rôle |
+| --- | --- | --- |
+| Vue | ^3.5 | Framework de la SPA |
+| TypeScript | ~6.0 | Langage |
+| Vite | ^8.1 | Serveur de développement et build |
+| Vue Router | ^5.2 | Routage côté client |
+| Pinia | ^4.0 | État partagé |
+| Vitest | ^4.1 | Tests unitaires |
+| Cypress | ^15.18 | Tests end-to-end |
+| oxlint / ESLint | ~1.77 / ^10.7 | Analyse statique |
+| Prettier | 3.9.5 | Formatage |
 
 ## Prérequis
 
 - PHP **8.3** ou supérieur, avec les extensions habituelles de Laravel (dont `pdo_pgsql`)
 - [Composer](https://getcomposer.org/) 2.x
-- [Node.js](https://nodejs.org/) 22.x et npm
+- [Node.js](https://nodejs.org/) **22.18+ ou 24.12+** et npm — contrainte `engines`
+  de [`frontend/package.json`](frontend/package.json) ; un Node 22.0 à 22.17 est refusé
 - [Docker](https://docs.docker.com/) avec Docker Compose (pour PostgreSQL)
 
 ## Installation
@@ -97,7 +139,7 @@ php artisan key:generate
 php artisan migrate
 ```
 
-### 4. Installer et compiler les assets
+### 4. Installer les assets du backend
 
 ```bash
 npm install
@@ -107,7 +149,24 @@ npm run build
 Le fichier `.npmrc` du backend force `ignore-scripts=true` : les scripts
 d'installation des paquets npm ne sont pas exécutés, par précaution.
 
+### 5. Installer le frontend
+
+Depuis la racine du dépôt :
+
+```bash
+cd frontend
+npm install
+```
+
+> ⚠️ Contrairement au backend, `frontend/` n'a pas de `.npmrc` : `npm install`
+> exécute donc le script `prepare`, soit `cypress install`, qui télécharge le
+> binaire Cypress (une centaine de mégaoctets). Pour s'en passer, utiliser
+> `npm install --ignore-scripts` — les tests end-to-end resteront alors
+> indisponibles jusqu'à un `npx cypress install` explicite.
+
 ## Lancer l'environnement de développement
+
+### Backend
 
 Depuis `backend/`, une seule commande démarre le serveur HTTP, le worker de file
 d'attente, le suivi des logs et Vite en parallèle :
@@ -116,7 +175,8 @@ d'attente, le suivi des logs et Vite en parallèle :
 composer run dev
 ```
 
-L'application est alors disponible sur <http://localhost:8000>.
+L'API est alors disponible sur <http://localhost:8000> (préfixe `/api`, cf. le
+contrat d'API).
 
 Pour lancer les services séparément :
 
@@ -127,7 +187,21 @@ php artisan pail                           # logs en direct
 npm run dev                                # Vite en mode watch
 ```
 
+### Frontend
+
+Depuis `frontend/` :
+
+```bash
+npm run dev                                # serveur Vite, port 5173 par défaut
+npm run build                              # type-check puis build de production
+npm run preview                            # sert le build sur le port 4173
+```
+
+Les deux serveurs tournent en parallèle : la SPA appelle l'API sur le port 8000.
+
 ## Tests
+
+### Backend
 
 ```bash
 cd backend
@@ -138,7 +212,22 @@ Les tests s'exécutent sur une base **SQLite en mémoire** (voir
 [`backend/phpunit.xml`](backend/phpunit.xml)), indépendamment du PostgreSQL de
 développement : aucun conteneur n'est requis pour les lancer.
 
+### Frontend
+
+```bash
+cd frontend
+npm run test:unit          # Vitest
+npm run type-check         # vue-tsc
+npm run test:e2e           # Cypress sur le build de production (port 4173)
+npm run test:e2e:dev       # Cypress en mode interactif sur le serveur de dev
+```
+
+`test:e2e` construit puis sert l'application avant de lancer Cypress ; le binaire
+Cypress doit avoir été installé (cf. installation du frontend).
+
 ## Qualité de code
+
+### Backend
 
 ```bash
 cd backend
@@ -146,20 +235,34 @@ cd backend
 ./vendor/bin/pint --test   # vérifie sans modifier
 ```
 
+### Frontend
+
+```bash
+cd frontend
+npm run lint               # oxlint puis ESLint, avec correction automatique
+npm run format             # Prettier sur src/
+```
+
 ## Structure du dépôt
 
 ```
 .
-├── backend/            Application Laravel (API + rendu Blade)
+├── backend/            API REST Laravel
 │   ├── app/            Modèles, contrôleurs, providers
 │   ├── config/         Configuration du framework
 │   ├── database/       Migrations, factories, seeders
-│   ├── resources/      Vues Blade, CSS, JS
+│   ├── resources/      Vues Blade, CSS, JS du squelette
 │   ├── routes/         Déclaration des routes
-│   ├── storage/        Logs, cache, fichiers générés (non versionnés)
+│   ├── storage/        Logs, cache, fichiers déposés (non versionnés)
 │   └── tests/          Tests unitaires et fonctionnels
-├── frontend/           Application front (stack à définir)
-├── docs/               Documentation projet
+├── frontend/           SPA Vue 3 + TypeScript
+│   ├── cypress/        Tests end-to-end
+│   └── src/
+│       ├── components/ Composants réutilisables
+│       ├── router/     Routes côté client
+│       ├── stores/     Stores Pinia
+│       └── views/      Écrans
+├── docs/               Documentation de conception (fait autorité)
 └── compose.yaml        Services de développement (PostgreSQL)
 ```
 
@@ -170,12 +273,20 @@ cd backend
   `docker compose down -v && docker compose up -d`, puis `php artisan migrate`.
 - **Tests** : SQLite en mémoire, recréée à chaque exécution.
 
+Le schéma cible est décrit dans [docs/mcd.md](docs/mcd.md) ; les migrations
+actuelles sont encore celles du squelette Laravel.
+
 ## Points ouverts
 
-- [ ] Rédiger la description fonctionnelle et les cas d'usage
-- [ ] Définir la stack et initialiser `frontend/`
+- [ ] Écrire les migrations du modèle métier : table `files`, et alignement de
+      `users` sur [docs/mcd.md](docs/mcd.md) (le squelette livre `name`,
+      `email_verified_at` et `remember_token`, absents du modèle)
+- [ ] Implémenter les 7 opérations du contrat d'API et le scheduler de purge
+- [ ] Choisir et installer un paquet JWT côté backend (décision d'architecture
+      prise, aucune dépendance ajoutée)
+- [ ] Construire les écrans de la SPA d'après les maquettes
 - [ ] Aligner `backend/.env.example` sur PostgreSQL
-- [ ] Concevoir le modèle de données métier et les migrations associées
-- [ ] Définir le contrat d'API et l'authentification
-- [ ] Mettre en place une intégration continue (tests + Pint)
+- [ ] Mettre en place une intégration continue (tests backend et frontend, Pint, lint)
+- [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
+      sans laquelle aucune purge n'a lieu
 - [ ] Choisir et déclarer une licence

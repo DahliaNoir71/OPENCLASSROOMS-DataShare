@@ -1,0 +1,268 @@
+openapi: 3.1.0
+info:
+  title: DataShare API
+  version: 1.0.0
+  description: >
+    Contrat d'interface du prototype DataShare — transfert sécurisé de
+    fichiers via liens temporaires. Toutes les réponses sont en JSON sauf le
+    téléchargement (binaire).
+servers:
+  - url: http://localhost:8000/api
+    description: Développement local
+
+tags:
+  - name: auth
+    description: Création de compte et connexion (US03, US04)
+  - name: files
+    description: Gestion des fichiers de l'utilisateur connecté (US01, US05, US06)
+  - name: links
+    description: Accès public via lien de téléchargement (US02, US09)
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Création de compte (US03)
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, password_confirmation]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                password_confirmation: { type: string }
+      responses:
+        "201":
+          description: Compte créé, jeton émis
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Connexion (US04)
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Authentification réussie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /files:
+    get:
+      tags: [files]
+      summary: Historique des fichiers de l'utilisateur (US05)
+      operationId: listFiles
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: status
+          in: query
+          description: Filtre maquette « Tous / Actifs / Expiré »
+          schema: { type: string, enum: [all, active, expired], default: all }
+      responses:
+        "200":
+          description: Liste des fichiers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/FileResource" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [files]
+      summary: Téléversement d'un fichier (US01)
+      operationId: uploadFile
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Taille max 1 Go, extensions exécutables refusées
+                password:
+                  type: string
+                  minLength: 6
+                  description: Protection optionnelle du téléchargement (US09)
+                expires_in_days:
+                  type: integer
+                  minimum: 1
+                  maximum: 7
+                  default: 7
+                  description: Durée de validité du lien (US10)
+      responses:
+        "201":
+          description: Fichier stocké, lien généré
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { description: Fichier supérieur à 1 Go }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /files/{id}:
+    delete:
+      tags: [files]
+      summary: Suppression manuelle d'un fichier (US06)
+      operationId: deleteFile
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Fichier et métadonnées supprimés (irréversible) }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Le fichier appartient à un autre utilisateur }
+        "404": { description: Fichier inexistant }
+
+  /links/{token}:
+    get:
+      tags: [links]
+      summary: Métadonnées publiques avant téléchargement (US02)
+      operationId: getLinkMetadata
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Métadonnées visibles avant téléchargement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LinkMetadata" }
+        "404": { description: Lien invalide }
+        "410": { description: Lien expiré — fichier plus disponible }
+
+  /links/{token}/download:
+    post:
+      tags: [links]
+      summary: Téléchargement du fichier (US02, US09)
+      operationId: downloadFile
+      security: []
+      description: >
+        POST (et non GET) car un mot de passe peut être requis ; il transite
+        dans le corps, jamais dans l'URL.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  description: Requis uniquement si le fichier est protégé
+      responses:
+        "200":
+          description: Contenu binaire du fichier
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "401": { description: Mot de passe absent ou incorrect }
+        "404": { description: Lien invalide }
+        "410": { description: Lien expiré }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string, description: JWT à placer en Authorization Bearer }
+        user:
+          type: object
+          properties:
+            id: { type: integer }
+            email: { type: string, format: email }
+
+    FileResource:
+      type: object
+      properties:
+        id: { type: integer }
+        original_name: { type: string }
+        size: { type: integer, description: octets }
+        mime_type: { type: string }
+        protected: { type: boolean, description: true si mot de passe défini }
+        expires_at: { type: string, format: date-time }
+        expired: { type: boolean, description: calculé serveur }
+        link: { type: string, format: uri, description: URL publique de téléchargement }
+        created_at: { type: string, format: date-time }
+
+    UploadResponse:
+      type: object
+      properties:
+        data: { $ref: "#/components/schemas/FileResource" }
+
+    LinkMetadata:
+      type: object
+      properties:
+        original_name: { type: string }
+        size: { type: integer }
+        mime_type: { type: string }
+        protected: { type: boolean }
+        expires_at: { type: string, format: date-time }
+
+  responses:
+    Unauthorized:
+      description: Jeton absent, invalide ou expiré
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+    ValidationError:
+      description: Erreur de validation (format Laravel)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { type: string }

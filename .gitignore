@@ -2,16 +2,16 @@
 # OPENCLASSROOMS-DataShare — .gitignore racine (monorepo)
 #
 # Périmètre réel du projet :
-#   backend/   : application Laravel 12 (PHP / Composer / Vite / Tailwind)
-#   frontend/  : application JS (stack à définir)
+#   backend/   : application Laravel 13 (PHP 8.3 / Composer / Vite / Tailwind)
+#   frontend/  : application Vue 3 + TypeScript (Vite)
 #   docs/      : documentation
 #   compose.yaml : Postgres 17 en local via Docker Compose
 #
 # Ce fichier ne couvre QUE le niveau monorepo (OS, éditeurs, secrets, Node,
-# artefacts de build, Docker). Le backend Laravel gère lui-même ses exclusions
-# via backend/.gitignore, backend/database/.gitignore,
-# backend/bootstrap/cache/.gitignore et backend/storage/**/.gitignore :
-# ne pas les dupliquer ici.
+# artefacts de build, Docker). Chaque application gère elle-même ses
+# exclusions — backend/.gitignore, backend/database/.gitignore,
+# backend/bootstrap/cache/.gitignore, backend/storage/**/.gitignore et
+# frontend/.gitignore : ne pas les dupliquer ici.
 # ---------------------------------------------------------------------------
 
 # --- Systèmes d'exploitation -----------------------------------------------
@@ -70,8 +70,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # --- Artefacts de build (frontend & assets Laravel/Vite) ------------------
-# Compléter avec les dossiers propres au framework retenu pour frontend/
-# (.next/, .nuxt/, .svelte-kit/, .angular/, …) au moment du choix de stack.
+# Stack frontend arrêtée (Vue 3 + Vite) : aucun dossier de framework
+# supplémentaire à exclure — .next/, .nuxt/, .svelte-kit/, .angular/ sont
+# sans objet ici.
 dist/
 build/
 .vite/
@@ -123,6 +124,12 @@ docker-compose.override.yml
 .claude/local/
 CLAUDE.local.md
 .aider*
+# Instructions générées par l'extension VS Code Mermaid Chart (réinstallables
+# via « MermaidChart: Install AI Skills… ») : outillage d'éditeur, pas
+# documentation projet. Ne jamais ignorer .github/ en entier — les workflows
+# CI doivent y rester versionnés.
+.github/copilot-instructions.md
+.github/instructions/mermaid.instructions.md
 
 # --- Fichiers temporaires / résidus ---------------------------------------
 *.bak
