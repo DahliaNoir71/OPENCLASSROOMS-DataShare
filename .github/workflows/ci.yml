@@ -8,14 +8,17 @@
 # est documente en fin d'en-tete plutot que singe.
 #
 # -- QUI TOURNE QUAND --------------------------------------------------------
-#   Job                | PR -> main | push main | dispatch | Bloquant ?
-#   -------------------|------------|-----------|----------|----------------
-#   backend-quality    |     v      |     v     |    v     | oui
-#   backend-tests      |     v      |     v     |    v     | oui (x2 : sqlite+pgsql)
-#   frontend-quality   |     v      |     v     |    v     | oui
-#   frontend-tests     |     v      |     v     |    v     | oui
-#   security           |     v      |     v     |    v     | oui
-#   ci-ok              |     v      |     v     |    v     | SEUL check requis
+#   Tous les jobs tournent sur les trois contextes : push sur n'importe quelle
+#   branche (retour rapide), PR vers main (la gate), et declenchement manuel.
+#
+#   Job                | push branche | PR -> main | dispatch | Bloquant ?
+#   -------------------|--------------|------------|----------|-------------
+#   backend-quality    |      v       |     v      |    v     | oui
+#   backend-tests      |      v       |     v      |    v     | oui (x2 : sqlite+pgsql)
+#   frontend-quality   |      v       |     v      |    v     | oui
+#   frontend-tests     |      v       |     v      |    v     | oui
+#   security           |      v       |     v      |    v     | oui
+#   ci-ok              |      v       |     v      |    v     | SEUL check requis
 #
 # -- COMPLEMENTARITE AVEC .pre-commit-config.yaml ----------------------------
 #   Les hooks locaux sont la detection PRECOCE, contournable (--no-verify).
@@ -53,9 +56,13 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [main]
+  # Retour rapide des le premier push sur une branche de travail, sans attendre
+  # l'ouverture de la PR. `branches: ['**']` cible toutes les branches mais
+  # EXCLUT les tags (un `push:` nu se declencherait aussi sur les tags).
   push:
+    branches: ['**']
+  # La PR reste la gate : c'est elle qui conditionne le merge via "CI OK".
+  pull_request:
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -65,7 +72,13 @@ on:
         default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Deduplication push / pull_request : quand une PR est ouverte sur une
+  # branche, un push declenche LES DEUX evenements, donc deux runs identiques.
+  # La cle `head_ref || ref` place les deux dans le MEME groupe : le second
+  # annule le premier et il ne reste qu'un run utile. C'est l'equivalent
+  # GitHub du `$CI_OPEN_MERGE_REQUESTS ... when: never` des pipelines GitLab
+  # (head_ref n'est renseigne que sur pull_request, ref sur push).
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
