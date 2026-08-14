@@ -15,6 +15,9 @@
   --ds-color-primary: #2c2c2c; /* fond du bouton sombre */
   --ds-color-primary-text: #f3eeea; /* texte sur bouton sombre */
 
+  /* Bouton upload rond (accueil) — ajouté au lot habillage, manqué à l'extraction initiale */
+  --ds-color-upload-halo: rgba(47, 25, 13, 0.15); /* halo autour du disque sombre du bouton upload */
+
   /* Accents orange — 3 tokens distincts, contrastes différents, pas de fusion */
   --ds-color-accent: #e27f29; /* texte orange sur fond blanc (boutons Tertiary/Secondary : "Créer un compte", "Supprimer", "Accéder", "Changer") */
   --ds-color-accent-strong: #ba681f; /* texte orange sur fond teinté (boutons Primary : "Téléverser", "Télécharger", "Connexion") */

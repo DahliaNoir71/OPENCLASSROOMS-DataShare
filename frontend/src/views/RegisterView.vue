@@ -161,51 +161,152 @@ async function onSubmit(): Promise<void> {
 </template>
 
 <style scoped>
-/* TODO lot CSS final */
 .register-page {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background: var(--ds-gradient-bg);
 }
 
 .register-main {
   flex: 1;
   display: flex;
   justify-content: center;
-  padding: 1.5rem 1rem;
+  padding: var(--ds-space-lg) var(--ds-space-md);
 }
 
 .register-card {
   width: 100%;
+  background: var(--ds-color-surface);
+  border-radius: var(--ds-radius-card);
+  box-shadow: var(--ds-shadow-card);
+  padding: var(--ds-space-lg);
 }
 
 .register-title {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--ds-space-lg);
+  font-family: var(--ds-font-family-heading);
+  font-size: var(--ds-font-size-h2);
+  line-height: var(--ds-line-height-h2);
+  font-weight: var(--ds-font-weight-h2);
+  color: var(--ds-color-text);
+  text-align: center;
 }
 
 .register-form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--ds-space-xs);
 }
 
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--ds-space-xs);
+}
+
+.form-field:not(:first-child) {
+  margin-top: var(--ds-space-xs);
+}
+
+.form-field label {
+  font-family: var(--ds-font-family-body);
+  font-size: var(--ds-font-size-body);
+  line-height: var(--ds-line-height-body);
+  font-weight: var(--ds-font-weight-body);
+  color: var(--ds-color-text-secondary);
+}
+
+.form-field input {
+  border: var(--ds-border-width) solid var(--ds-color-border);
+  border-radius: var(--ds-radius-input);
+  background: var(--ds-color-surface);
+  color: var(--ds-color-text-secondary);
+  padding: var(--ds-space-sm) var(--ds-space-md);
+  font-family: var(--ds-font-family-heading);
+  font-size: var(--ds-font-size-input);
+  line-height: var(--ds-line-height-input);
+  font-weight: var(--ds-font-weight-input);
+}
+
+.form-field input::placeholder {
+  color: var(--ds-color-text-muted);
+}
+
+.form-field input:focus-visible {
+  outline: 2px solid var(--ds-color-accent-border);
+  outline-offset: 2px;
+}
+
+.form-field:has(.form-error) input {
+  border-color: var(--ds-color-error-border);
 }
 
 .form-error,
 .form-error-global {
   margin: 0;
+  color: var(--ds-color-error-text);
+  font-family: var(--ds-font-family-heading);
+  font-size: var(--ds-font-size-small);
+  line-height: var(--ds-line-height-small);
+  font-weight: var(--ds-font-weight-small);
+}
+
+.register-login-link {
+  display: block;
+  width: 100%;
+  margin-top: var(--ds-space-md);
+  padding: var(--ds-space-sm);
+  border-radius: var(--ds-radius-button);
+  text-align: center;
+  text-decoration: none;
+  color: var(--ds-color-accent);
+  font-family: var(--ds-font-family-heading);
+  font-size: var(--ds-font-size-input);
+  line-height: var(--ds-line-height-input);
+  font-weight: var(--ds-font-weight-input);
+}
+
+.register-login-link:hover {
+  background: color-mix(in srgb, var(--ds-color-accent) 8%, transparent);
+}
+
+.register-login-link:focus-visible {
+  outline: 2px solid var(--ds-color-accent-border);
+  outline-offset: 2px;
 }
 
 .register-submit {
   width: 100%;
+  border: var(--ds-border-width) solid var(--ds-color-accent-border);
+  border-radius: var(--ds-radius-button);
+  background: var(--ds-color-accent-soft);
+  color: var(--ds-color-accent-strong);
+  padding: var(--ds-space-sm);
+  font-family: var(--ds-font-family-heading);
+  font-size: var(--ds-font-size-input);
+  line-height: var(--ds-line-height-input);
+  font-weight: var(--ds-font-weight-input);
+}
+
+.register-submit:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.register-submit:focus-visible {
+  outline: 2px solid var(--ds-color-accent-border);
+  outline-offset: 2px;
+}
+
+.register-submit:disabled {
+  background: var(--ds-color-disabled-bg);
+  border-color: var(--ds-color-disabled-text);
+  color: var(--ds-color-disabled-text);
 }
 
 .app-footer {
   display: none;
+  color: var(--ds-color-text-inverse);
 }
 
 @media (min-width: 768px) {
@@ -219,7 +320,7 @@ async function onSubmit(): Promise<void> {
 
   .app-footer {
     display: block;
-    padding: 1rem;
+    padding: var(--ds-space-md);
     text-align: center;
   }
 }

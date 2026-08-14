@@ -29,6 +29,14 @@ lot CSS final.
 | `--ds-color-primary` | `#2C2C2C` | Fond des boutons « Se connecter », « Mon espace », « Ajouter des fichiers » | Button Component `#20:598`, variant `Dark` |
 | `--ds-color-primary-text` | `#F3EEEA` | Texte sur bouton sombre | |
 
+### Bouton upload rond (accueil)
+
+| Variable | Valeur | Usage maquette | Réf. Figma |
+|---|---|---|---|
+| `--ds-color-upload-halo` | `rgba(47, 25, 13, 0.15)` | Halo autour du disque sombre du bouton upload (page d'accueil) | Frame `#55:338`, cercle extérieur |
+
+**Ajouté au lot habillage, manqué à l'extraction initiale** : ce token n'existait pas au moment de l'extraction des fondations (le disque intérieur du bouton upload avait été rattaché à `--ds-color-primary`, mais le halo qui l'entoure n'avait pas été relevé). Valeur reprise telle quelle depuis Figma (`rgba(47, 25, 13, 0.15)`), pas une approximation.
+
 ### Accents orange (3 tokens distincts, arbitrage : pas de fusion)
 
 | Variable | Valeur | Usage maquette | Réf. Figma |
@@ -193,26 +201,45 @@ inventée) : à faire trancher par le designer, pas de token créé pour ces cas
   utilise `#F1E9E2` alors que le même footer utilise `#FFFFFF` partout ailleurs
   (Téléversement, Login, Téléchargement, Mon espace mobile). Traité comme une
   erreur ponctuelle : `--ds-color-text-inverse` retient `#FFFFFF`.
+- **Contraste `--ds-color-accent` (#E27F29) sur fond blanc**, utilisé comme
+  texte des boutons Tertiary/Secondary (« Créer un compte », « J'ai déjà un
+  compte », etc.) : ratio approximatif ~2,7:1, sous le seuil WCAG AA texte
+  normal (4,5:1) et sous le seuil UI/large text (3:1). Valeur de maquette non
+  modifiée ici — à faire trancher par le designer.
+- **Contraste `--ds-color-accent-strong` (#BA681F) sur `--ds-color-accent-soft`**
+  (texte des boutons Primary sur leur fond teinté) : ratio approximatif
+  ~3,3:1, à la limite du seuil UI/large text (3:1) et sous le seuil texte
+  normal (4,5:1). Valeur de maquette non modifiée ici — à faire trancher par
+  le designer.
 
-## À arbitrer (lot CSS final)
+## Dérivations hors maquette (lot CSS final)
 
-Données absentes ou non exploitables depuis Figma. Aucun token n'a été créé
-pour ces cas — proposition de dérivation à valider avant le lot CSS final :
+États ou valeurs absents de la maquette, sans variante Figma échantillonnée.
+Dérivations validées (arbitrage du 2026-08-14) :
 
 - **État Error visuel des inputs/select** : la propriété de composant
   `Has Error: true` est posée sur une instance (Select « Expiration », nœud
   `#9:194`) mais aucune variante stylée distincte (bordure/texte rouges) n'a
   été observée dans les données Figma récupérées — le variant « Error » du
   component set `Input Field` (`#1:379`) n'a pas été échantillonné visuellement.
-  **Proposition** : réutiliser tels quels `--ds-color-error-border` (bordure
-  d'input en erreur) et `--ds-color-error-text` (message d'erreur), déjà
-  définis pour les callouts, plutôt que d'introduire de nouvelles couleurs.
+  **Retenu** : réutilisation telle quelle de `--ds-color-error-border`
+  (bordure d'input en erreur) et `--ds-color-error-text` (message d'erreur),
+  déjà définis pour les callouts. Implémenté en CSS pur via
+  `.form-field:has(.form-error) input`, sans classe conditionnelle ajoutée au
+  template.
 - **États hover / focus** (boutons et inputs) : uniquement Default et Disabled
   présents dans la maquette, aucun état hover/focus trouvé.
-  **Proposition** : dériver le hover des boutons Primary/Secondary/Tertiary en
-  assombrissant `--ds-color-accent-soft` / `--ds-color-accent-border-soft`
-  (ex. via `filter: brightness()` ou une variante `-hover` calculée), et le
-  focus des inputs via un `box-shadow` basé sur `--ds-color-accent-border`
-  plutôt qu'une nouvelle couleur.
+  **Retenu** : focus visible via `:focus-visible { outline: 2px solid
+  var(--ds-color-accent-border); outline-offset: 2px; }` (jamais `:focus`
+  seul, pour ne pas afficher l'anneau au clic souris). Hover des boutons par
+  dérivation mécanique de l'existant, sans nouvelle couleur : `filter:
+  brightness(0.95)` sur Primary, `filter: brightness(1.15)` sur Dark, et
+  `color-mix(in srgb, var(--ds-color-accent) 8%, transparent)` comme fond de
+  survol pour Tertiary (fond transparent par défaut).
+- **Halo du bouton upload rond (accueil)** : voir § Bouton upload rond
+  ci-dessus — contrairement aux deux points précédents, ce cas a donné lieu à
+  un nouveau token (`--ds-color-upload-halo`) plutôt qu'à une dérivation
+  calculée, la valeur Figma étant disponible et fidèle prévalant sur une
+  approximation.
 - **Breakpoint 768px** : voir section dédiée ci-dessus — valeur de projet, pas
   une mesure Figma.
