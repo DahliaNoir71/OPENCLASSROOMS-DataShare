@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\NoStore;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -13,10 +14,25 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        $middleware->throttleApi();
+        $middleware->api(prepend: [NoStore::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );
+
+        // Context attached to every reported exception. The route pattern, not
+        // the resolved path: a download URL carries the share token, which is a
+        // bearer secret and has no place in a log file.
+        $exceptions->context(function (): array {
+            if (app()->runningInConsole()) {
+                return [];
+            }
+
+            return [
+                'method' => request()->method(),
+                'route' => request()->route()?->uri(),
+            ];
+        });
     })->create();

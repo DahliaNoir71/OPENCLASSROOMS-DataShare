@@ -1,0 +1,121 @@
+/* TODO lot CSS final */
+/* Design tokens DataShare — extraits de la maquette Figma (voir docs/design-tokens.md).
+   Ce fichier ne stylise aucune vue : il expose uniquement les variables. */
+
+:root {
+  /* ==================== Couleurs ==================== */
+
+  /* Dégradé de fond (pages Téléversement / Login / Téléchargement / Mon espace) */
+  --ds-gradient-from: #ffb88c; /* rgba(255, 184, 140, 1) — départ du dégradé */
+  --ds-gradient-to: #de6262; /* rgba(222, 98, 98, 1) — arrivée du dégradé */
+  --ds-gradient-angle: 149deg; /* angle du dégradé de fond */
+  --ds-gradient-bg: linear-gradient(var(--ds-gradient-angle), var(--ds-gradient-from) 0%, var(--ds-gradient-to) 100%);
+
+  /* Bouton primaire sombre (variant Dark : "Se connecter", "Mon espace", "Ajouter des fichiers") */
+  --ds-color-primary: #2c2c2c; /* fond du bouton sombre */
+  --ds-color-primary-text: #f3eeea; /* texte sur bouton sombre */
+
+  /* Bouton upload rond (accueil) — ajouté au lot habillage, manqué à l'extraction initiale */
+  --ds-color-upload-halo: rgba(47, 25, 13, 0.15); /* halo autour du disque sombre du bouton upload */
+
+  /* Accents orange — 3 tokens distincts, contrastes différents, pas de fusion */
+  --ds-color-accent: #e27f29; /* texte orange sur fond blanc (boutons Tertiary/Secondary : "Créer un compte", "Supprimer", "Accéder", "Changer") */
+  --ds-color-accent-strong: #ba681f; /* texte orange sur fond teinté (boutons Primary : "Téléverser", "Télécharger", "Connexion") */
+  --ds-color-accent-soft: rgba(255, 129, 45, 0.13); /* fond teinté des boutons Primary */
+  --ds-color-accent-border: rgba(205, 94, 20, 0.5); /* bordure des boutons Primary */
+  --ds-color-accent-border-soft: #ffa569; /* bordure des boutons Secondary */
+  --ds-color-link: #d8640b; /* texte du lien de partage (Téléversement / Téléchargement) */
+
+  /* États disabled (tous variants de bouton) */
+  --ds-color-disabled-bg: rgba(183, 167, 156, 0.2); /* fond bouton Primary désactivé */
+  --ds-color-disabled-bg-dark: #f4eee9; /* fond bouton Dark désactivé */
+  --ds-color-disabled-text: #aea49b; /* texte / bordure des boutons désactivés, tous variants */
+
+  /* Callouts */
+  --ds-color-info-bg: #e2ecff; /* fond callout Info */
+  --ds-color-info-border: #b1c9f5; /* bordure callout Info */
+  --ds-color-info-text: #2a3f72; /* texte callout Info */
+  --ds-color-warning-bg: #fff5ed; /* fond callout Warning/Alert */
+  --ds-color-warning-border: #e6cbb5; /* bordure callout Warning/Alert */
+  --ds-color-warning-text: #aa642b; /* texte callout Warning/Alert */
+  --ds-color-error-bg: #ffe2e2; /* fond callout Error */
+  --ds-color-error-border: #e8a6a6; /* bordure callout Error */
+  --ds-color-error-text: #9c3333; /* texte callout Error */
+
+  /* Texte */
+  --ds-color-text: #000000; /* texte principal (titres H1/H2) */
+  --ds-color-text-secondary: #1e1e1e; /* labels de champ, valeur saisie dans un input */
+  --ds-color-text-muted: #b3b3b3; /* placeholder des inputs */
+  --ds-color-text-inverse: #ffffff; /* texte sur fond sombre / dégradé (footer copyright) */
+  --ds-color-text-expired: #c62020; /* libellé "Expiré" (Mon espace) */
+
+  /* Surfaces */
+  --ds-color-surface: #ffffff; /* fond de carte, d'input, de select */
+  --ds-color-border: #d9d9d9; /* bordure input / select */
+
+  /* Switch (filtre "Tous / Actifs / Expiré") */
+  --ds-color-switch-bg: rgba(255, 193, 145, 0.16); /* fond du conteneur */
+  --ds-color-switch-border: rgba(215, 99, 11, 0.2); /* bordure du conteneur */
+  --ds-color-switch-selected: #e77a6e; /* segment sélectionné (solide — voir anomalie dégradé dans docs/design-tokens.md) */
+
+  /* Liste de fichiers (Mon espace) */
+  --ds-color-file-row-bg: rgba(255, 193, 145, 0.05); /* fond d'une ligne de fichier actif */
+  --ds-color-file-row-border: rgba(215, 99, 11, 0.2); /* bordure d'une ligne de fichier actif */
+
+  /* ==================== Typographie ==================== */
+  /* --ds-font-family-heading et --ds-font-family-body sont définies dans fonts.css
+     (colocalisées avec les @font-face). */
+
+  --ds-font-size-h1: 32px; /* logo "DataShare" (header) */
+  --ds-line-height-h1: 40px;
+  --ds-font-weight-h1: 700; /* Bold */
+
+  --ds-font-size-h2: 28px; /* titres de carte : "Connexion", "Ajouter un fichier", "Mes fichiers" */
+  --ds-line-height-h2: 40px;
+  --ds-font-weight-h2: 700; /* Bold */
+
+  --ds-font-size-xlarge: 30px; /* accroche page d'accueil ("Tu veux partager un fichier ?") */
+  --ds-line-height-xlarge: 40px;
+  --ds-font-weight-xlarge: 300; /* Light */
+
+  --ds-font-size-body: 16px; /* corps de texte, labels de champ (style "Normal") */
+  --ds-line-height-body: 24px;
+  --ds-font-weight-body: 400; /* Regular */
+
+  --ds-font-size-input: 16px; /* valeur / placeholder des inputs, libellés de bouton */
+  --ds-line-height-input: 16px;
+  --ds-font-weight-input: 400; /* Regular */
+
+  --ds-font-size-small: 14px; /* métadonnées : taille de fichier, callouts, expiration */
+  --ds-line-height-small: 16px;
+  --ds-font-weight-small: 400; /* Regular */
+
+  --ds-font-size-accent: 16px; /* noms de fichiers et utilisateur (Mon espace) */
+  --ds-line-height-accent: 24px;
+  --ds-font-weight-accent: 600; /* SemiBold */
+
+  /* ==================== Formes ==================== */
+  --ds-radius-card: 16px; /* cartes login / upload / download */
+  --ds-radius-button: 8px; /* tous variants de bouton */
+  --ds-radius-input: 8px; /* input / select */
+  --ds-radius-callout: 8px; /* callouts info / warning / error */
+  --ds-radius-pill: 24px; /* switch filtre (forme pilule) */
+  --ds-shadow-card: 0px 0px 12px 0px rgba(0, 0, 0, 0.25); /* ombre des cartes */
+  --ds-border-width: 1px; /* épaisseur de bordure standard (inputs, boutons, callouts, switch) */
+
+  /* ==================== Espacements ==================== */
+  /* Échelle relevée dans la maquette (pas une échelle inventée) */
+  --ds-space-xs: 8px; /* label → input, boutons empilés, padding callout, icône ↔ texte bouton */
+  --ds-space-sm: 12px; /* padding bouton medium, padding horizontal d'un input */
+  --ds-space-md: 16px; /* écart entre champs de formulaire, padding header, padding ligne fichier */
+  --ds-space-lg: 24px; /* padding de carte, écart titre → champs */
+
+  --ds-size-control-height: 40px; /* hauteur des inputs / select (fixe sur le select, résultante sur l'input) */
+
+  /* ==================== Breakpoint ==================== */
+  /* Documentaire : valeur de projet (US03), non mesurée depuis Figma (frames Figma en
+     393px mobile / 1440px desktop, aucune valeur 768px présente dans la maquette).
+     Une media query ne peut pas consommer une variable CSS : répéter 768px directement
+     dans chaque @media (min-width: 768px). */
+  --ds-breakpoint-desktop: 768px;
+}

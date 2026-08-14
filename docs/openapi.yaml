@@ -5,14 +5,21 @@ info:
   description: >
     Contrat d'interface du prototype DataShare — transfert sécurisé de
     fichiers via liens temporaires. Toutes les réponses sont en JSON sauf le
-    téléchargement (binaire).
+    téléchargement (binaire). Aucune réponse n'est cachable : elles dépendent
+    toutes soit de l'instant (expiration du lien), soit du porteur du jeton.
+  license:
+    name: MIT
+    identifier: MIT
 servers:
   - url: http://localhost:8000/api
     description: Développement local
 
 tags:
   - name: auth
-    description: Création de compte et connexion (US03, US04)
+    description: >
+      Création de compte et connexion (US03, US04). Ces routes sont ouvertes à
+      tous et plafonnées à 5 requêtes par minute et par adresse IP, contre 60
+      pour le reste de l'API.
   - name: files
     description: Gestion des fichiers de l'utilisateur connecté (US01, US05, US06)
   - name: links
@@ -39,10 +46,13 @@ paths:
       responses:
         "201":
           description: Compte créé, jeton émis
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AuthResponse" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /auth/login:
     post:
@@ -63,11 +73,14 @@ paths:
       responses:
         "200":
           description: Authentification réussie
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AuthResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /files:
     get:
@@ -83,6 +96,8 @@ paths:
       responses:
         "200":
           description: Liste des fichiers
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
               schema:
@@ -92,6 +107,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/FileResource" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
     post:
       tags: [files]
       summary: Téléversement d'un fichier (US01)
@@ -128,6 +144,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "413": { description: Fichier supérieur à 1 Go }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /files/{id}:
     delete:
@@ -145,6 +162,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { description: Le fichier appartient à un autre utilisateur }
         "404": { description: Fichier inexistant }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /links/{token}:
     get:
@@ -160,11 +178,14 @@ paths:
       responses:
         "200":
           description: Métadonnées visibles avant téléchargement
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LinkMetadata" }
         "404": { description: Lien invalide }
         "410": { description: Lien expiré — fichier plus disponible }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /links/{token}/download:
     post:
@@ -192,12 +213,16 @@ paths:
       responses:
         "200":
           description: Contenu binaire du fichier
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
+            Content-Disposition: { $ref: "#/components/headers/ContentDisposition" }
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
         "401": { description: Mot de passe absent ou incorrect }
         "404": { description: Lien invalide }
         "410": { description: Lien expiré }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
 components:
   securitySchemes:
@@ -205,6 +230,32 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+
+  headers:
+    RetryAfter:
+      description: Nombre de secondes à attendre avant un nouvel appel.
+      required: true
+      schema: { type: integer, example: 60 }
+
+    NoStore:
+      description: >
+        Toujours `no-store, private` — Symfony ré-ordonne les directives par
+        ordre alphabétique. Posé sur toute réponse `/api` par le middleware
+        `NoStore`, y compris les erreurs. Une réponse conservée par un
+        intermédiaire — proxy, CDN, cache du navigateur — servirait un
+        contenu sans repasser par le contrôle d'expiration, le mot de passe
+        de partage (US09) ou l'identité du porteur du jeton. Cf.
+        `docs/architecture.md`, section « Cache ».
+      required: true
+      schema: { type: string, const: "no-store, private" }
+
+    ContentDisposition:
+      description: >
+        `attachment; filename="<nom d'origine>"`. C'est par cet en-tête, et
+        non par le corps, que le nom de fichier d'origine remonte au
+        destinataire : le nom physique sur disque est un UUID.
+      required: true
+      schema: { type: string }
 
   schemas:
     AuthResponse:
@@ -247,6 +298,18 @@ components:
   responses:
     Unauthorized:
       description: Jeton absent, invalide ou expiré
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+    TooManyRequests:
+      description: >
+        Plafond de requêtes dépassé. Les compteurs sont tenus par le limiteur
+        de débit dans le store de cache de l'application.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
       content:
         application/json:
           schema:
