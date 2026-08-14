@@ -7,124 +7,117 @@
 #   docs/      contrat OpenAPI (docs/openapi.yaml)
 #   compose.yaml : PostgreSQL 17 local
 #
+# -- PRINCIPE : PARTITION STRICTE AVEC LA CI ---------------------------------
+# Ces hooks et .github/workflows/ci.yml ne se recouvrent PAS. Chaque controle
+# vit a exactement UN endroit, choisi par sa nature :
+#
+#   ICI      ce qui CORRIGE le code (formateurs), ce qui garde le moment du
+#            commit (branche, marqueurs de conflit, gros fichiers), et le seul
+#            controle que la CI ne peut structurellement pas faire : la
+#            validation de son propre workflow.
+#
+#   EN CI    TOUTE la verification : Pint --test, oxlint, ESLint, vue-tsc,
+#            Prettier --check, PHPUnit, Vitest, build, composer validate,
+#            redocly lint, absence de dd()/dump(), gitleaks. Non contournable,
+#            c'est elle qui conditionne le merge via le check requis "CI OK".
+#
+# Consequence directe : AUCUN hook ici ne rejoue une verification de la CI. Un
+# doublon n'apporterait que du delai gagne, au prix d'un commit ralenti et
+# d'une double maintenance — et une gate lente finit contournee au --no-verify,
+# donc ne vaut rien. C'est pourquoi il n'y a pas d'etage pre-push : tout ce
+# qu'il contenait (PHPUnit, ESLint, vue-tsc, Vitest, Pint --test) etait un
+# doublon de la CI.
+#
+# COROLLAIRE, a respecter avant d'ajouter un hook : si la CI le fait deja, il
+# n'a pas sa place ici. Si c'est une verification que la CI ne fait pas encore,
+# l'ajouter A LA CI plutot qu'ici — un controle contournable par --no-verify
+# n'est pas une gate.
+#
 # Adapte du baseline XOps "complet", elague de ce qui n'existe pas ici :
 # ni Python (ruff/bandit/vulture/uv-lock), ni GitLab CI (check-gitlab-ci),
 # ni pnpm (le frontend est en npm + package-lock.json).
 #
-# Repartition des roles avec la CI (.github/workflows/ci.yml) :
-#   - ces hooks sont la DETECTION PRECOCE, sur le poste de dev. Ils sont
-#     contournables (`git commit --no-verify`) et ne font donc pas foi ;
-#   - la CI est le filet NON CONTOURNABLE : elle rejoue Pint, oxlint/ESLint,
-#     vue-tsc, Vitest et `php artisan test` sur chaque PR vers main, et c'est
-#     elle qui conditionne le merge via le check requis "CI OK".
-# Les versions des outils partages sont alignees entre les deux fichiers
-# (gitleaks v8.30.0) pour qu'un run local vert ne puisse pas masquer un
-# pipeline rouge. Voir le bloc symetrique en tete de ci.yml.
-#
-# -- CE QUI N'EST DELIBEREMENT PAS COUVERT ICI -------------------------------
-# Ces absences sont des choix, pas des oublis :
-#   * leg PostgreSQL de la suite backend : la parite avec la production est le
-#     role de la CI. En local, phpunit.xml suffit (SQLite :memory:).
-#   * `composer audit` / `npm audit` : non bloquants en CI, et dependants du
-#     reseau. Un hook qui echoue faute de connexion serait vite contourne.
-#   * `npm run build-only` : couvert en CI. vue-tsc attrape ici l'essentiel.
-#   * markdownlint : .markdownlint-cli2.jsonc existe, mais backend/README.md et
-#     frontend/README.md sont encore les fichiers de scaffold (28 issues a eux
-#     deux). Brancher le hook avant de les remplacer bloquerait tout commit
-#     touchant au Markdown. A ajouter en meme temps que leur remplacement.
-#   * portee de gitleaks : diff indexe ici, historique complet en CI (voir 1.).
-#   * Prettier : --write ici, --check en CI (asymetrie assumee, voir 4.).
-#
 # Installation :
 #   pipx install pre-commit        # (deja installe ici)
-#   pre-commit install             # installe les hooks pre-commit ET pre-push
+#   pre-commit install
+# Si un etage pre-push a ete installe par une version anterieure de ce fichier,
+# le retirer explicitement — `pre-commit install` ne desinstalle rien :
+#   pre-commit uninstall --hook-type pre-push
 # Verification :
 #   pre-commit run --all-files
 # =============================================================================
 
-# Installe les deux types de hooks des un simple `pre-commit install`, pour que
-# les gates pre-push (Pint --test, php artisan test, ESLint, vue-tsc, Vitest)
-# ne soient jamais silencieusement ignorees.
-default_install_hook_types: [pre-commit, pre-push]
+# Un seul type de hook : il n'y a plus d'etage pre-push (voir l'en-tete).
+default_install_hook_types: [pre-commit]
 
-# Rattache par defaut chaque hook au stage pre-commit. SANS cette ligne,
-# installer le hook pre-push ci-dessus ferait AUSSI tourner au pre-push tous les
-# hooks sans stage explicite — et les auto-correcteurs qui reecrivent les
-# fichiers (trailing-whitespace, end-of-file-fixer, mixed-line-ending, pint,
-# prettier --write) feraient alors echouer le push. Les gates lentes plus bas
-# reviennent explicitement sur pre-push via `stages: [pre-push]`.
+# S'applique aux hooks qui NE DECLARENT PAS leurs propres stages ; un hook qui
+# en declare gagne toujours (dans pre-commit-hooks v6.0.0, trailing-whitespace,
+# end-of-file-fixer et check-added-large-files declarent
+# [pre-commit, pre-push, manual]). Sans consequence tant qu'aucun hook pre-push
+# n'est installe, mais a garder en tete si l'etage revenait un jour.
 default_stages: [pre-commit]
 
 repos:
   # ===================================================
-  # 1. Detection de secrets — Gitleaks
-  # ===================================================
-  # Gate de securite CRITIQUE. backend/.env porte APP_KEY et JWT_SECRET ; il est
-  # bien gitignore, mais gitleaks couvre le cas ou un secret se retrouve dans un
-  # fichier versionne (config, test, doc, fixture).
-  # Portee : diff staged uniquement — un secret DEJA present dans l'historique
-  # ne sera pas vu ici. Pour un audit complet : `gitleaks detect --source .`
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.0
-    hooks:
-      - id: gitleaks
-
-  # ===================================================
-  # 2. Hooks de base — hygiene et validation
+  # 1. Hygiene, portabilite et garde-fous du commit
   # ===================================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
-      # --- Nettoyage (auto-correcteurs) ---
+      # --- Correcteurs : reecrivent le fichier, donc n'ont de sens qu'ici ---
+      # La CI ne peut pas corriger : elle reecrirait un runner jetable puis
+      # sortirait en succes, soit un faux vert. Elle n'a pas d'equivalent de ces
+      # trois hooks, il n'y a donc aucun doublon.
       # Les lockfiles sont generes : on n'y touche pas.
       - id: trailing-whitespace
         exclude: ^(frontend/package-lock\.json|backend/composer\.lock)$
       - id: end-of-file-fixer
         exclude: ^(frontend/package-lock\.json|backend/composer\.lock)$
-
-      # --- Portabilite Windows/WSL <-> Linux ---
       # Poste de dev sous WSL, depot potentiellement clone sous Windows.
-      - id: check-case-conflict
       - id: mixed-line-ending
         args: ['--fix=lf']
         exclude: ^(frontend/package-lock\.json|backend/composer\.lock)$
 
-      # --- Validation des fichiers de configuration ---
-      # YAML versionnes : compose.yaml, docs/openapi.yaml, ce fichier.
+      # --- Validation de configuration : aucun equivalent en CI ---
+      # YAML versionnes : compose.yaml, docs/openapi.yaml, ce fichier. Le lint
+      # OpenAPI proprement dit (schema 3.1) est en CI ; ici, syntaxe seule.
       - id: check-yaml
       # tsconfig.app/node/vitest.json sont du JSONC (commentaires) : le parser
-      # strict les rejette, d'ou l'exclusion. Verifie sur les 12 JSON versionnes
-      # du depot : ce sont les seuls trois concernes.
+      # strict les rejette, d'ou l'exclusion.
       - id: check-json
         exclude: (^|/)tsconfig.*\.json$
 
-      # --- Garde-fous commit ---
+      # --- Garde-fous propres au moment du commit ---
+      # Ceux-ci n'ont de sens qu'avant que le commit existe : une fois l'objet
+      # cree, le constat arrive trop tard. La CI ne les rejoue donc pas.
+      - id: check-case-conflict
       - id: check-merge-conflict
       # 1024 Ko et non 500 : composer.lock (315 Ko) et package-lock.json
       # (306 Ko) sont deja proches de la moitie du seuil et vont grossir.
       - id: check-added-large-files
         args: ['--maxkb=1024']
-      # Defense en profondeur a cote de gitleaks.
-      - id: detect-private-key
-
-      # Interdit le commit direct sur main : la branche est protegee cote
-      # GitHub (push rejete par le serveur). Ce hook fait echouer le commit
-      # AVANT, au lieu de laisser des commits a deplacer ensuite.
+      # Volontairement ABSENT : detect-private-key. Une cle privee est un cas
+      # particulier de secret, et gitleaks le couvre deja en CI (job security)
+      # avec bien plus de regles. Le garder ici serait un doublon — le meme
+      # raisonnement que celui qui a sorti le hook gitleaks local.
+      #
+      # main est protegee cote GitHub (push rejete par le serveur). Ce hook fait
+      # echouer le commit AVANT, au lieu de laisser des commits a deplacer.
       - id: no-commit-to-branch
         args: ['--branch', 'main']
 
   # ===================================================
-  # 3. Backend Laravel — Pint / Composer / PHPUnit
+  # 2. Backend Laravel — formatage uniquement
   # ===================================================
-  # `language: system` : ces outils viennent de backend/vendor (composer install),
-  # pre-commit ne les gere pas.
+  # `language: system` : Pint vient de backend/vendor (composer install),
+  # pre-commit ne le gere pas.
   - repo: local
     hooks:
-      # --- pre-commit : rapide ---
-      # Pint --dirty se base sur git, pas sur les arguments : d'ou
-      # pass_filenames: false. pre-commit met de cote les modifications non
-      # indexees, donc --dirty voit exactement les fichiers staged.
-      # Il reecrit les fichiers : le hook echoue alors, il suffit de re-`git add`.
+      # CORRECTEUR, pas un doublon du `pint --test` de la CI : celui-ci verifie
+      # et echoue, celui-la reecrit. --dirty se base sur git et non sur les
+      # arguments, d'ou pass_filenames: false ; pre-commit met de cote les
+      # modifications non indexees, donc --dirty voit exactement les fichiers
+      # staged. Quand il reecrit, le hook echoue : il suffit de re-`git add`.
       - id: pint
         name: Laravel Pint (backend)
         entry: bash -c 'cd backend && ./vendor/bin/pint --dirty'
@@ -132,80 +125,17 @@ repos:
         files: ^backend/.*\.php$
         pass_filenames: false
 
-      # Supply chain : garantit que composer.lock reste synchronise avec
-      # composer.json. --no-check-publish : le projet n'est pas un paquet publie.
-      - id: composer-validate
-        name: composer validate (backend)
-        entry: bash -c 'cd backend && composer validate --strict --no-check-publish'
-        language: system
-        files: ^backend/composer\.(json|lock)$
-        pass_filenames: false
-
-      # Equivalent PHP du hook `debug-statements` (qui, lui, est Python-only) :
-      # empeche de commiter un dd()/dump()/var_dump() oublie. Heuristique par
-      # regex — en cas de faux positif, elargir l'`exclude` plutot que de
-      # prendre l'habitude du --no-verify.
-      - id: php-debug-statements
-        name: pas de dd()/dump()/var_dump() (backend)
-        entry: bash -c '! grep -nE "(^|[^[:alnum:]_])(dd|dump|var_dump|ray)[[:space:]]*\(" "$@"' --
-        language: system
-        files: ^backend/(app|routes|config|database)/.*\.php$
-
-      # --- pre-push : plus lent, une fois par push ---
-      # La suite est autonome (phpunit.xml : SQLite :memory: + JWT_SECRET de
-      # test), elle ne touche donc jamais la base PostgreSQL de dev.
-      - id: phpunit
-        name: php artisan test (backend)
-        entry: bash -c 'cd backend && php artisan test'
-        language: system
-        files: ^backend/.*\.(php|xml)$
-        pass_filenames: false
-        stages: [pre-push]
-
-      # Complement du `pint --dirty` ci-dessus, PAS un doublon. --dirty ne voit
-      # que ce qui a bouge depuis HEAD : un fichier deja committe sans avoir ete
-      # formate n'est jamais revu en local. C'est arrive — backend/config/jwt.php
-      # est entre en 59f9cf4, avant l'installation des hooks (9f909ea), et n'a
-      # ete signale qu'en CI. Ce hook rejoue donc le `--test` de la CI sur TOUT
-      # le backend, une fois par push.
-      # --test et non --dirty ici : verification seule. Un auto-correcteur au
-      # pre-push reecrirait des fichiers et ferait echouer le push.
-      - id: pint-all
-        name: Laravel Pint --test (tout le backend)
-        entry: bash -c 'cd backend && ./vendor/bin/pint --test'
-        language: system
-        files: ^backend/.*\.php$
-        pass_filenames: false
-        stages: [pre-push]
-
   # ===================================================
-  # 4. Frontend Vue 3 — oxlint / Prettier / ESLint / vue-tsc
+  # 3. Frontend Vue 3 — formatage uniquement
   # ===================================================
   # Prerequis : `npm --prefix frontend install` (fournit les binaires).
-  #
-  # NOTE — tous ces hooks sont en pass_filenames: false, volontairement :
-  # pre-commit passe des chemins relatifs a la RACINE (frontend/src/App.vue),
-  # alors que l'entry fait `cd frontend`. Passer "$@" tel quel resoudrait
-  # frontend/frontend/src/App.vue et casserait le hook. Lancer l'outil sur tout
-  # le projet evite ce piege et reste rapide (cache oxlint/ESLint).
+  # pass_filenames: false volontairement : pre-commit passe des chemins relatifs
+  # a la RACINE (frontend/src/App.vue) alors que l'entry fait `cd frontend` —
+  # "$@" resoudrait frontend/frontend/src/App.vue et casserait le hook.
   - repo: local
     hooks:
-      # --- pre-commit : rapide (Rust, quelques ms) ---
-      # Complementaire d'ESLint et NON redondant : eslint.config.ts appelle
-      # pluginOxlint.buildFromOxlintConfigFile(), qui DESACTIVE dans ESLint les
-      # regles couvertes par oxlint. Sans ce hook, ces regles ne seraient
-      # verifiees par personne.
-      # Pour un alignement strict avec un futur job CI : ajouter --deny-warnings
-      # (a valider d'abord sur la base existante, sous peine de bloquer tous les
-      # commits sur des warnings preexistants).
-      - id: frontend-oxlint
-        name: oxlint (frontend)
-        entry: bash -c 'cd frontend && npx oxlint'
-        language: system
-        files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs|vue)$
-        pass_filenames: false
-
-      # Reecrit les fichiers ; cible src/, comme le script `format`.
+      # CORRECTEUR, pendant du `prettier --check` de la CI. Cible src/, comme le
+      # script `format`.
       - id: frontend-prettier
         name: prettier --write (frontend/src)
         entry: bash -c 'cd frontend && npx prettier --write src/'
@@ -213,85 +143,21 @@ repos:
         files: ^frontend/src/.*\.(ts|vue|css|json)$
         pass_filenames: false
 
-      # --- pre-push : plus lent (lint JS / build de types) ---
-      # Verification seule (pas de --fix au pre-push : un auto-correcteur qui
-      # reecrit des fichiers ferait echouer le push). --cache accelere les
-      # relances.
-      - id: frontend-eslint
-        name: eslint (frontend)
-        entry: bash -c 'cd frontend && npx eslint . --cache'
-        language: system
-        files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs|vue)$
-        pass_filenames: false
-        stages: [pre-push]
-
-      # Les erreurs de typage echappent totalement a ESLint et a oxlint.
-      - id: frontend-typecheck
-        name: vue-tsc type-check (frontend)
-        entry: bash -c 'cd frontend && npm run type-check'
-        language: system
-        files: ^frontend/.*\.(ts|tsx|vue)$
-        pass_filenames: false
-        stages: [pre-push]
-
-      # Pendant frontend du hook phpunit : sans lui, les tests backend tournent
-      # au pre-push mais ceux de la SPA nulle part, et une regression frontend
-      # n'apparait qu'en CI. Cette asymetrie n'etait pas un choix.
-      # `npx vitest run` et NON `npm run test:unit` : le script appelle `vitest`
-      # sans `run`, qui reste en mode watch — le hook ne rendrait jamais la main.
-      # Meme forme que la CI.
-      - id: frontend-vitest
-        name: vitest run (frontend)
-        entry: bash -c 'cd frontend && npx vitest run'
-        language: system
-        files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs|vue)$
-        pass_filenames: false
-        stages: [pre-push]
-
   # ===================================================
-  # 5. Workflow GitHub Actions — actionlint
+  # 4. Workflow GitHub Actions — actionlint
   # ===================================================
-  # check-yaml (section 2) ne valide que la SYNTAXE YAML de ci.yml. Il laisse
-  # donc passer tout ce qui est propre a Actions : un `needs:` pointant sur un
-  # job inexistant, une expression ${{ }} malformee, un `runs-on` mal
-  # orthographie, une cle inconnue. Sur un workflow de 450 lignes qui est le
-  # seul filet non contournable du projet, ces erreurs ne se voyaient qu'apres
-  # un push — et un workflow qui refuse de demarrer laisse le check requis
-  # "CI OK" en attente au lieu de virer au rouge.
+  # LE cas ou un controle doit etre local : la CI ne peut pas se verifier
+  # elle-meme. Un workflow malforme ne demarre pas, et un workflow qui ne
+  # demarre pas laisse le check requis "CI OK" EN ATTENTE au lieu de virer au
+  # rouge — la PR est bloquee sans qu'aucun message n'explique pourquoi.
+  # check-yaml (section 1) ne voit que la syntaxe YAML ; il laisse passer tout
+  # ce qui est propre a Actions : `needs:` vers un job inexistant, expression
+  # ${{ }} malformee, `runs-on` mal orthographie, cle inconnue.
   #
   # `language: golang` : pre-commit (4.6.1 ici) telecharge lui-meme la
-  # toolchain, aucun Go a installer sur le poste. Si ce comportement pose
-  # probleme, l'amont fournit `actionlint-docker` (Docker est deja un prerequis
-  # du projet pour PostgreSQL) et `actionlint-system` (binaire deja installe).
-  #
-  # actionlint delegue a shellcheck l'analyse des blocs `run:` quand shellcheck
-  # est present. C'est souhaitable — ci.yml contient du bash non trivial — mais
-  # cela peut signaler des ecarts preexistants au premier passage.
+  # toolchain, aucun Go a installer. L'amont fournit aussi `actionlint-docker`
+  # (Docker est deja un prerequis du projet) et `actionlint-system`.
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:
       - id: actionlint
-
-  # ===================================================
-  # 6. Contrat d'API — Redocly
-  # ===================================================
-  # docs/openapi.yaml fait autorite sur le contrat (cf. README), et n'etait
-  # verifie par personne : check-yaml n'en controle que la syntaxe, pas le
-  # schema OpenAPI 3.1. Une operation mal formee ou une $ref cassee passaient.
-  #
-  # Version epinglee et non `@latest` : meme raison que le pin par SHA des
-  # actions dans ci.yml. Un lint qui change de comportement sans qu'on l'ait
-  # decide n'est pas une gate.
-  #
-  # Redocly sort en echec sur les ERREURS seulement ; les avertissements
-  # n'echouent pas. L'avertissement `no-server-example.com` est attendu et
-  # assume (aucun deploiement, donc pas d'URL de production a declarer) : ce
-  # hook doit donc passer au vert malgre lui.
-  - repo: local
-    hooks:
-      - id: openapi-lint
-        name: redocly lint (docs/openapi.yaml)
-        entry: bash -c 'npx --yes @redocly/cli@2.46.1 lint docs/openapi.yaml'
-        language: system
-        files: ^docs/openapi\.yaml$
-        pass_filenames: false

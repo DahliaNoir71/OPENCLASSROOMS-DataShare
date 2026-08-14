@@ -304,45 +304,53 @@ scaffolds ne sont pas conformes (cf. points ouverts).
 
 ## Intégration continue
 
-Deux filets superposés, volontairement asymétriques : les hooks locaux
-**corrigent** (`--fix`, `--write`), la CI **vérifie** seulement (`--test`,
-`--check`). Un correcteur en CI réécrirait un runner jetable puis sortirait en
-succès — un faux vert.
+Les deux dispositifs ne se recouvrent **pas**. Chaque contrôle vit à exactement
+un endroit, choisi par sa nature :
+
+| | Rôle | Contenu |
+| --- | --- | --- |
+| Hooks locaux | ce qui **corrige** | `pint --dirty`, `prettier --write`, hygiène de fichiers, garde-fous du commit, `actionlint` |
+| CI | ce qui **vérifie** | `pint --test`, oxlint, ESLint, `prettier --check`, vue-tsc, PHPUnit, Vitest, build, `composer validate`, `redocly lint`, `dd()` / `dump()`, gitleaks |
+
+Aucun hook ne rejoue un job, aucun job ne rejoue un hook. Un doublon
+n'apporterait que du délai gagné, au prix d'une double maintenance et d'un
+commit ralenti — et une gate lente finit contournée au `--no-verify`, donc ne
+vaut rien.
+
+Corollaire avant d'ajouter un contrôle : s'il **corrige**, il va dans les
+hooks ; s'il **vérifie**, il va en CI. Une vérification en hook local serait
+effacée par un `--no-verify`, ce n'est donc pas une gate.
+
+La conséquence est assumée : un écart de vérification n'est signalé qu'après le
+push. C'est le prix d'un commit rapide.
 
 ### Hooks locaux — [`.pre-commit-config.yaml`](.pre-commit-config.yaml)
 
 ```bash
 pipx install pre-commit
-pre-commit install          # installe les hooks pre-commit ET pre-push
+pre-commit install
 pre-commit run --all-files  # premier passage sur l'existant
 ```
 
-Détection précoce, contournable avec `--no-verify`. Deux étages :
-
-| Étage | Contrôles |
-| --- | --- |
-| `pre-commit` (rapide) | gitleaks, hygiène de fichiers, `check-yaml`, `check-json`, `pint --dirty`, `composer validate`, absence de `dd()` / `dump()`, oxlint, Prettier, actionlint, `redocly lint` |
-| `pre-push` (lent) | `php artisan test`, `pint --test` sur tout le backend, ESLint, vue-tsc, Vitest |
-
-`default_install_hook_types` déclare les deux types : un simple
-`pre-commit install` suffit, les gates de push ne peuvent pas être oubliées.
+Douze hooks, un seul étage (`pre-commit`), tous rapides. Il n'y a
+**pas** d'étage `pre-push` : tout ce qu'il contenait doublait la CI.
 
 ### GitHub Actions — [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 
-Le filet non contournable. Six jobs, tous bloquants, sur push de branche comme
+Le filet non contournable. Sept jobs, tous bloquants, sur push de branche comme
 sur PR vers `main` : qualité backend, tests backend (SQLite **et** PostgreSQL),
-qualité frontend, tests frontend, gitleaks sur l'historique complet, et
-l'agrégateur `CI OK` — seul check à déclarer requis sur `main`.
+qualité frontend, tests frontend, gitleaks sur l'historique complet, contrat
+d'API, et l'agrégateur `CI OK` — seul check à déclarer requis sur `main`.
 
 Deux propriétés à connaître avant d'y toucher :
 
-- Le `pint --dirty` du pre-commit ne voit que ce qui a bougé depuis `HEAD` : un
+- Le `pint --dirty` des hooks ne corrige que ce qui a bougé depuis `HEAD` : un
   fichier déjà committé sans avoir été formaté n'y repasse jamais. C'est arrivé
   — `config/jwt.php` est entré en `59f9cf4`, avant l'installation des hooks en
-  `9f909ea`, et n'a été signalé qu'en CI. Un `pint --test` sur tout le backend
-  a donc été ajouté au pre-push : l'écart de périmètre est fermé.
+  `9f909ea`, et n'a été signalé qu'en CI. C'est le fonctionnement attendu : le
+  `pint --test` de la CI est le filet, le hook n'est qu'une commodité d'écriture.
 - Les actions sont épinglées par SHA de commit, pas par tag ; l'image gitleaks
-  par digest, identique à celui du hook. Voir l'en-tête du workflow pour la
+  par digest. Voir l'en-tête du workflow pour la
   procédure de rafraîchissement.
 
 ## Structure du dépôt
@@ -366,7 +374,7 @@ Deux propriétés à connaître avant d'y toucher :
 │       └── views/              Écrans
 ├── docs/                       Documentation de conception (fait autorité)
 ├── .github/workflows/ci.yml    Pipeline d'intégration continue
-├── .pre-commit-config.yaml     Hooks de qualité locaux (pre-commit, pre-push)
+├── .pre-commit-config.yaml     Hooks locaux — formatage et garde-fous
 └── compose.yaml                Services de développement (PostgreSQL)
 ```
 
@@ -399,8 +407,9 @@ table `files`, non encore créée.
       (`HelloWorld`, `TheWelcome`, `AboutView`, store `counter`) est encore en place
 - [ ] Remplacer `backend/README.md` et `frontend/README.md`, restés les fichiers
       par défaut de Laravel et du template Vue (28 issues markdownlint à eux
-      deux) ; brancher le hook `markdownlint` dans le même mouvement — l'ajouter
-      avant bloquerait tout commit touchant au Markdown
+      deux)
+- [ ] Ajouter `markdownlint` **à la CI** une fois ces deux fichiers remplacés —
+      c'est une vérification, sa place est là et non dans les hooks
 - [ ] Mettre à jour [docs/architecture.md](docs/architecture.md), qui indique
       encore qu'aucun paquet JWT n'est installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
