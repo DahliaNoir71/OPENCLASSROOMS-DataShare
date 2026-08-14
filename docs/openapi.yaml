@@ -6,6 +6,9 @@ info:
     Contrat d'interface du prototype DataShare — transfert sécurisé de
     fichiers via liens temporaires. Toutes les réponses sont en JSON sauf le
     téléchargement (binaire).
+  license:
+    name: MIT
+    identifier: MIT
 servers:
   - url: http://localhost:8000/api
     description: Développement local

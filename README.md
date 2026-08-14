@@ -24,6 +24,13 @@ Le contrat d'API se valide avec :
 npx @redocly/cli lint docs/openapi.yaml
 ```
 
+Un avertissement subsiste et est **attendu** : `no-server-example.com`, car la
+seule entrée `servers` pointe sur `http://localhost:8000/api`. Il n'y a pas
+encore de déploiement, et déclarer une URL de production inexistante
+introduirait une information fausse dans le contrat. À rouvrir au premier
+déploiement réel. Redocly sort malgré tout en succès : l'avertissement
+n'invalide pas la description.
+
 ## État du projet
 
 La conception fonctionnelle et technique est arrêtée ; l'implémentation du
@@ -365,6 +372,7 @@ table `files`, non encore créée.
       `php-open-source-saver/jwt-auth`
 - [x] Aligner `backend/.env.example` sur PostgreSQL
 - [x] Mettre en place une intégration continue (tests, Pint, lint, gitleaks)
+- [x] Choisir et déclarer une licence → MIT
 - [ ] Écrire les migrations du modèle métier : table `files`, et fin d'alignement
       de `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
       `remember_token` restent livrés par le squelette, absents du modèle)
@@ -378,4 +386,12 @@ table `files`, non encore créée.
       encore qu'aucun paquet JWT n'est installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
       sans laquelle aucune purge n'a lieu
-- [ ] Choisir et déclarer une licence
+- [ ] Déclarer une URL de production dans `servers` du contrat d'API, au premier
+      déploiement (lève l'avertissement `no-server-example.com`)
+
+## Licence
+
+[MIT](LICENSE). L'identifiant est déclaré aux trois endroits qui l'exposent :
+[`LICENSE`](LICENSE), `info.license` de
+[`docs/openapi.yaml`](docs/openapi.yaml), et le champ `license` de
+[`backend/composer.json`](backend/composer.json).
