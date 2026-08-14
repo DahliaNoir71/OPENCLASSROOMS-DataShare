@@ -19,7 +19,7 @@ flowchart LR
 
     subgraph Data["Données et état serveur"]
         P[("PostgreSQL 17.5\nconteneur Docker")]
-        K[("Cache applicatif\ntables cache / cache_locks\ncompteurs de quota")]
+        K[("Cache applicatif\ntables cache / cache_locks\ncompteurs de quota\nliste noire des jetons révoqués")]
         F[/"Stockage fichiers\nfaçade Storage — driver local\n(interchangeable S3)"/]
         G[/"Journaux\nstorage/logs"/]
     end
@@ -60,7 +60,7 @@ suivante.
 | SPA Vue 3 + TS | Interface utilisateur (maquettes Figma), validation côté client |
 | API Laravel | Logique métier, validation côté serveur, émission/vérification JWT |
 | PostgreSQL | Métadonnées : utilisateurs, fichiers (token, expiration, protection) |
-| Cache applicatif | Compteurs de quota du limiteur de débit ; aucune donnée métier |
+| Cache applicatif | Compteurs de quota du limiteur de débit ; liste noire des jetons révoqués par la déconnexion |
 | Stockage fichiers | Contenu binaire, noms physiques aléatoires, hors racine web |
 | Journaux | Seule sortie des traitements sans client : purge, erreurs, quotas |
 | Scheduler | Tâche planifiée quotidienne : suppression des fichiers expirés (métadonnées + physique) |
@@ -92,7 +92,7 @@ contrat ([openapi.yaml](openapi.yaml)) en fait une grammaire :
 | Code | Ce qu'il apprend au client |
 | --- | --- |
 | `201` / `200` / `204` | Traitement accepté ; le corps porte la ressource, ou rien |
-| `401` | Jeton absent, invalide ou expiré — ou mot de passe de partage incorrect |
+| `401` | Jeton absent, invalide, expiré ou révoqué — identifiants de connexion refusés, ou mot de passe de partage incorrect |
 | `403` | Le fichier appartient à un autre utilisateur |
 | `404` | Lien inconnu — indistinguable, volontairement, d'un lien jamais émis |
 | `410` | Lien connu mais expiré : l'information « il a existé » est assumée |
@@ -154,10 +154,20 @@ toujours la dernière, celle qui précède immédiatement l'ouverture du flux.
 ### Ce qui est en place
 
 Le store est configuré sur `database` (`CACHE_STORE`), soit les tables `cache`
-et `cache_locks` du même PostgreSQL. Son unique consommateur à ce jour est le
-**limiteur de débit** : 60 appels par minute sur `/api`, 5 sur `/api/auth/*`.
-Les compteurs y vivent le temps d'une fenêtre ; c'est de là que sortent le `429`
-et son `Retry-After`.
+et `cache_locks` du même PostgreSQL. Il a deux consommateurs.
+
+Le **limiteur de débit** : 60 appels par minute sur `/api`, 5 sur
+`/api/auth/register` et `/api/auth/login`. Les compteurs y vivent le temps
+d'une fenêtre ; c'est de là que sortent le `429` et son `Retry-After`. Les
+routes `/api/auth/me` et `/api/auth/logout` relèvent du plafond général, et non
+du plafond strict : elles exigent un jeton, donc ne sont pas exposées au
+bourrage d'identifiants, et 5 appels par minute et par IP y pénaliseraient une
+session normale — a fortiori plusieurs utilisateurs partageant une sortie NAT.
+
+La **liste noire des jetons** (US04) : `POST /api/auth/logout` y inscrit le
+jeton présenté, et chaque requête authentifiée vérifie qu'il n'y figure pas.
+L'entrée est conservée jusqu'à l'échéance naturelle du jeton, au-delà de
+laquelle sa signature ne vaut de toute façon plus rien.
 
 Au déploiement s'y ajoutent les caches de compilation du framework
 (`config:cache`, `route:cache`, `event:cache`) : ils figent la configuration et
@@ -211,8 +221,14 @@ d'ailleurs la raison d'être de l'abstraction `Cache` de Laravel.
 
 Une entrée expirée est ignorée à la lecture et supprimée à cette occasion ;
 celles que plus personne ne relit — le compteur d'une adresse IP vue une seule
-fois — subsistent dans la table. À surveiller si le volume croît ; `cache:clear`
-la vide sans effet de bord, puisqu'elle ne contient aucune donnée métier.
+fois — subsistent dans la table. À surveiller si le volume croît.
+
+`cache:clear` n'est en revanche plus anodine depuis US04 : elle remet à zéro
+les compteurs de quota, ce qui est sans gravité, mais elle **efface aussi la
+liste noire**. Les jetons déconnectés redeviennent alors valides jusqu'à leur
+échéance. Ce n'est pas une donnée métier, mais c'est un état de sécurité : à
+traiter comme tel en exploitation, et à garder à l'esprit lors d'un changement
+de store, qui a le même effet.
 
 ## Journalisation et supervision
 
@@ -251,14 +267,24 @@ irréversible exigé par US06 ne laisse, par construction, aucune autre preuve.
 | Événement | Déclencheur | Contexte |
 | --- | --- | --- |
 | `User registered` | `201` sur `/auth/register` | `user_id` |
-| `User logged in` | `200` sur `/auth/login` (US04) | `user_id` |
+| `User logged in` | `200` sur `/auth/login` | `user_id` |
+| `Login failed` | `401` sur `/auth/login` | `ip` — niveau `warning` |
+| `User logged out` | `200` sur `/auth/logout` | `user_id` |
 | `File uploaded` | `201` sur `/files` | `user_id`, `file_id`, `size`, `protected` |
 | `Link consumed` | `200` sur le téléchargement | `file_id` — l'appelant est anonyme |
 | `File deleted` | `204` sur `/files/{id}` | `user_id`, `file_id` |
 | `Expired files purged` | passage du scheduler | nombre supprimé, nombre en échec |
 
-Seule la première ligne est implémentée, l'inscription étant la seule opération
-écrite. Les autres arrivent avec leur route.
+Les quatre premières lignes sont implémentées, les routes d'authentification
+étant les seules écrites. Les autres arrivent avec leur route.
+
+`Login failed` est la seule de la famille à sortir du niveau `info` : un échec
+d'authentification pris isolément est une réponse normale, mais sa
+concentration signale un bourrage d'identifiants — c'est un incident, pas un
+événement métier. Son contexte se réduit à l'adresse IP : ni l'email tenté, ni
+l'indication de ce qui a échoué du couple. La réponse refuse de dire si le
+compte existe (cf. plus bas), le journal ne doit pas le dire non plus, sans
+quoi l'oracle d'énumération est simplement déplacé du client vers l'exploitant.
 
 Trois règles tiennent la convention :
 
@@ -278,9 +304,6 @@ Trois règles tiennent la convention :
 - **Le rapport de purge** : nombre de fichiers supprimés, échecs de suppression
   physique. Sans lui, un scheduler qui ne tourne pas est indétectable jusqu'à
   saturation du disque. Attend l'écriture du scheduler.
-- **Les échecs d'authentification** : pris isolément ce sont des réponses
-  normales ; leur concentration signale un bourrage d'identifiants. Attend la
-  route de connexion (US04).
 
 ### Ce qui ne doit jamais y entrer
 
@@ -337,10 +360,23 @@ répond que si le routage `/api` fonctionne.
 - **Authentification par JWT plutôt que session à cookie** : l'API reste sans
   état, donc horizontalement extensible, et le front est libre de son
   hébergement (pas de contrainte de domaine partagé pour le cookie). Le prix à
-  payer : un jeton émis ne peut pas être révoqué avant son échéance — d'où une
-  durée de vie courte (60 minutes par défaut), et l'obligation de vérifier
+  payer est la révocation : un jeton signé se vérifie hors ligne, donc rien
+  dans le jeton lui-même ne permet de le rappeler avant son échéance. D'où une
+  durée de vie courte (60 minutes par défaut) et l'obligation de vérifier
   l'existence du compte à chaque requête plutôt que de faire confiance au seul
   contenu du jeton.
+- **Révocation par liste noire plutôt que déconnexion côté client seul**
+  (US04) : `POST /auth/logout` inscrit le jeton dans le cache, où chaque
+  requête authentifiée va ensuite le chercher. C'est une entorse assumée à
+  l'absence d'état — sans elle, « se déconnecter » se réduirait à ce que le
+  navigateur oublie le jeton, quand une copie interceptée resterait valable une
+  heure. L'entorse est bornée : une seule lecture de cache par requête, et la
+  liste se vide d'elle-même à l'échéance des jetons.
+- **Un message d'échec unique à la connexion** (US04) : répondre « email
+  inconnu » plutôt que « mot de passe erroné » ferait de la route un oracle
+  d'énumération de comptes, révélant qui possède un compte ici — information
+  personnelle en soi. Les deux échecs partagent donc le même corps et le même
+  `401`, et le journal applique la même règle.
 - **Fichiers hors de la racine web, servis par un contrôleur** : c'est ce qui
   rend les règles métier incontournables. Un fichier accessible par URL directe
   contournerait la vérification d'expiration et le mot de passe de partage
@@ -390,9 +426,10 @@ la rotation des journaux, le niveau de log de production et le choix du store de
 cache, tous pilotés par variables d'environnement.
 
 Ce document décrit l'architecture cible, celle du contrat d'API. À ce stade,
-une seule des sept opérations est implémentée (`POST /api/auth/register`) : le
-parcours de téléchargement schématisé plus haut est donc une conception, pas un
-état des lieux.
+quatre opérations sont implémentées, toutes d'authentification :
+`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` et
+`POST /api/auth/logout`. Le parcours de téléchargement schématisé plus haut est
+donc une conception, pas un état des lieux.
 
 Sont en revanche en place et opérants, parce qu'ils ne dépendent d'aucune route
 en particulier : les deux limiteurs de débit, le middleware `NoStore` sur tout
