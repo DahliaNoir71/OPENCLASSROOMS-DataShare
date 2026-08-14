@@ -1,0 +1,40 @@
+// =============================================================================
+// markdownlint — OPENCLASSROOMS-DataShare
+// =============================================================================
+// Trace ecrite des conventions deja suivies par les fichiers Markdown du depot
+// (README.md, docs/). N'est gate NI en CI NI en pre-commit : cet outil se lance
+// a la demande, `npx markdownlint-cli2 '**/*.md'`. Le fichier existe pour qu'un
+// tel passage soit vert sur un document conforme, au lieu de noyer un vrai
+// defaut dans une dizaine de faux positifs.
+//
+// Ne sont desactives que des reglages par defaut inadaptes a la FORME de ces
+// documents — aucune regle de fond n'est levee.
+// =============================================================================
+{
+  "config": {
+    // Prose a 80 colonnes, comme le reste du depot.
+    // tables/code_blocks a false : une cellule de tableau ne se coupe pas sans
+    // casser le rendu, et couper une commande shell la casse tout court. Sur
+    // ces deux formes la limite ne serait donc pas tenable, seulement ignoree.
+    "MD013": {
+      "line_length": 80,
+      "tables": false,
+      "code_blocks": false
+    },
+
+    // "### Backend" / "### Frontend" se repetent sous plusieurs "##" (Stack
+    // technique, Lancer l'environnement, Tests, Qualite de code). Ce ne sont
+    // pas des doublons mais des freres de parents differents, et les ancres
+    // generees restent distinctes. siblings_only ne signale donc que les vraies
+    // collisions : deux titres identiques sous un MEME parent.
+    "MD024": {
+      "siblings_only": true
+    }
+  },
+
+  // node_modules/ et vendor/ contiennent les Markdown des dependances.
+  "ignores": [
+    "**/node_modules/**",
+    "backend/vendor/**"
+  ]
+}
