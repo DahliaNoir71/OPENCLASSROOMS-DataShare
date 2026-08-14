@@ -370,12 +370,14 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       encore qu'aucun paquet JWT n'était installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
       sans laquelle aucune purge n'a lieu
-- [ ] Journaliser le rapport de purge du scheduler et les échecs
-      d'authentification, seuls manquants des trois familles décrites dans
-      [docs/architecture.md](docs/architecture.md#journalisation-et-supervision)
-      — les `429` et le contexte d'exception sont faits
-- [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=warning`, canal `daily` ou
-      `stderr`, et `CACHE_STORE=redis` si la charge le justifie
+- [ ] Compléter la piste d'audit au fil des routes (`File uploaded`,
+      `Link consumed`, `File deleted`, `Expired files purged`) et journaliser
+      les échecs d'authentification avec US04 — la convention et le seul
+      événement implémentable aujourd'hui, `User registered`, sont dans
+      [docs/architecture.md](docs/architecture.md#la-piste-daudit)
+- [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=info` — et non `warning`,
+      qui ferait taire la piste d'audit —, canal `daily` ou `stderr`, et
+      `CACHE_STORE=redis` si la charge le justifie
 - [ ] Déclarer une URL de production dans `servers` du contrat d'API, au premier
       déploiement — l'unique entrée pointe aujourd'hui sur `localhost`
 

@@ -229,13 +229,49 @@ un `403`, un `422` ou un `429` ne laisse par défaut aucune trace. Seule une
 erreur non rattrapée est journalisée. Une journalisation utile suppose donc des
 écritures explicites, pas la confiance dans le comportement par défaut.
 
-Deux sont en place :
+Trois écritures sont en place :
 
+- **Les événements métier**, en `info` — la piste d'audit, décrite ci-dessous.
 - **Les dépassements de quota**, écrits en `warning` par le callback de réponse
   des deux limiteurs (`AppServiceProvider`), avec le limiteur concerné, l'IP, la
   méthode, le motif de route et l'identifiant numérique de l'utilisateur.
 - **Le contexte des exceptions rapportées** — méthode et motif de route —
   ajouté dans `bootstrap/app.php`, pour que les 5xx soient diagnosticables.
+
+### La piste d'audit
+
+Les deux dernières familles sont des familles d'**incidents** : en usage normal,
+elles n'écrivent rien. Un journal qui ne se remplit qu'en cas de problème
+répond à la question « qu'est-ce qui a cassé ? », jamais à « que s'est-il
+passé ? ». Pour un service de partage de fichiers, la seconde question est la
+plus exigeante : sans trace de qui a déposé quoi, de quel lien a été consommé,
+de quel fichier a été effacé, le service n'est pas auditable — et l'effacement
+irréversible exigé par US06 ne laisse, par construction, aucune autre preuve.
+
+| Événement | Déclencheur | Contexte |
+| --- | --- | --- |
+| `User registered` | `201` sur `/auth/register` | `user_id` |
+| `User logged in` | `200` sur `/auth/login` (US04) | `user_id` |
+| `File uploaded` | `201` sur `/files` | `user_id`, `file_id`, `size`, `protected` |
+| `Link consumed` | `200` sur le téléchargement | `file_id` — l'appelant est anonyme |
+| `File deleted` | `204` sur `/files/{id}` | `user_id`, `file_id` |
+| `Expired files purged` | passage du scheduler | nombre supprimé, nombre en échec |
+
+Seule la première ligne est implémentée, l'inscription étant la seule opération
+écrite. Les autres arrivent avec leur route.
+
+Trois règles tiennent la convention :
+
+- **Le contexte ne contient que des identifiants numériques** et des valeurs non
+  parlantes. Ni email, ni nom de fichier d'origine, ni token — cf. la liste
+  d'exclusion ci-dessous, dont la piste d'audit ne s'affranchit pas.
+- **La ligne est écrite par le contrôleur**, pas par un observateur de modèle.
+  Ce qui mérite une trace est l'action métier passée par l'API : une factory ou
+  un seeder qui crée une ligne en base n'est pas une inscription.
+- **Le niveau est `info`**, distinct du `warning` des incidents. En production,
+  `LOG_LEVEL=warning` ferait donc taire la piste d'audit : si elle doit être
+  conservée, elle a besoin de son propre canal, ou d'un niveau de seuil plus
+  bas sur le canal principal. Point à trancher au premier déploiement.
 
 ### Ce qui reste à écrire
 
@@ -276,9 +312,16 @@ canal client.
 Le canal se choisit par variable d'environnement, sans toucher au code :
 `daily` avec rotation (`LOG_DAILY_DAYS=14`) sur un serveur classique, `stderr`
 si le back-end tourne en conteneur, pour que la plateforme d'hébergement
-collecte le flux. Le niveau descend à `warning` : `debug` en production
+collecte le flux.
+
+Le niveau, lui, n'est pas un simple curseur à baisser. `debug` est exclu — il
 inscrirait le détail des requêtes, donc les données que la section précédente
-exclut.
+interdit. Mais `warning`, le réflexe habituel en production, ferait disparaître
+la piste d'audit avec lui. **`info` est donc le seuil retenu** : il conserve les
+événements métier, écarte le bruit de `debug`, et laisse les incidents à leur
+niveau propre. Un canal séparé pour l'audit reste l'alternative si le volume
+devient un problème — le journal d'audit et le journal d'incidents n'ont ni la
+même durée de conservation utile, ni le même lectorat.
 
 La disponibilité, elle, se lit sur `GET /up`, déclarée au niveau du bootstrap et
 distincte de `GET /api/ping` : la première boote l'application, la seconde ne

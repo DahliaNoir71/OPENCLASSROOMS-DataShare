@@ -3,33 +3,30 @@
 namespace Tests\Feature\Api;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Log\Events\MessageLogged;
-use Illuminate\Support\Facades\Log;
+use Tests\Concerns\CapturesLogs;
 use Tests\TestCase;
 
 class RateLimitLoggingTest extends TestCase
 {
+    use CapturesLogs;
     use RefreshDatabase;
 
-    /**
-     * @var list<MessageLogged>
-     */
-    private array $logged = [];
+    private const REGISTER_URI = '/api/auth/register';
+
+    private const MESSAGE = 'Rate limit exceeded';
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        Log::listen(function (MessageLogged $message): void {
-            $this->logged[] = $message;
-        });
+        $this->captureLogs();
     }
 
     public function test_exceeding_the_auth_limiter_writes_a_warning(): void
     {
         $this->exhaustAuthLimiter();
 
-        $warnings = $this->rateLimitWarnings();
+        $warnings = $this->logsWithMessage(self::MESSAGE);
 
         $this->assertCount(1, $warnings);
         $this->assertSame('warning', $warnings[0]->level);
@@ -37,23 +34,23 @@ class RateLimitLoggingTest extends TestCase
         $this->assertSame('api/auth/register', $warnings[0]->context['route']);
     }
 
-    public function test_a_request_within_the_limit_writes_nothing(): void
+    public function test_a_request_within_the_limit_writes_no_warning(): void
     {
-        $this->postJson('/api/auth/register', $this->credentials(1))->assertCreated();
+        $this->postJson(self::REGISTER_URI, $this->credentials(1))->assertCreated();
 
-        $this->assertSame([], $this->rateLimitWarnings());
+        $this->assertSame([], $this->logsWithMessage(self::MESSAGE));
     }
 
     /**
      * The rule the architecture doc states: no share token, no JWT, no
-     * password, no email address in a log line. Only the numeric identifiers
-     * and the route pattern.
+     * password, no email address in a log line. Only numeric identifiers, the
+     * route pattern, and the caller address.
      */
     public function test_the_logged_context_carries_no_personal_data(): void
     {
         $this->exhaustAuthLimiter();
 
-        $context = $this->rateLimitWarnings()[0]->context;
+        $context = $this->logsWithMessage(self::MESSAGE)[0]->context;
 
         $this->assertSame(
             ['limiter', 'ip', 'method', 'route', 'user_id'],
@@ -62,24 +59,13 @@ class RateLimitLoggingTest extends TestCase
         $this->assertStringNotContainsString('@example.com', json_encode($context));
     }
 
-    /**
-     * @return list<MessageLogged>
-     */
-    private function rateLimitWarnings(): array
-    {
-        return array_values(array_filter(
-            $this->logged,
-            fn (MessageLogged $message): bool => $message->message === 'Rate limit exceeded',
-        ));
-    }
-
     private function exhaustAuthLimiter(): void
     {
         foreach (range(1, 5) as $i) {
-            $this->postJson('/api/auth/register', $this->credentials($i))->assertCreated();
+            $this->postJson(self::REGISTER_URI, $this->credentials($i))->assertCreated();
         }
 
-        $this->postJson('/api/auth/register', $this->credentials(6))->assertTooManyRequests();
+        $this->postJson(self::REGISTER_URI, $this->credentials(6))->assertTooManyRequests();
     }
 
     /**
