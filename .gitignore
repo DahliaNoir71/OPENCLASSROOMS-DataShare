@@ -126,8 +126,8 @@ CLAUDE.local.md
 .aider*
 # Instructions générées par l'extension VS Code Mermaid Chart (réinstallables
 # via « MermaidChart: Install AI Skills… ») : outillage d'éditeur, pas
-# documentation projet. Ne jamais ignorer .github/ en entier — les workflows
-# CI doivent y rester versionnés.
+# documentation projet. Ignorées nommément et non via `.github/` en entier, qui
+# reste versionnable si un fichier de projet vient un jour s'y ajouter.
 .github/copilot-instructions.md
 .github/instructions/mermaid.instructions.md
 

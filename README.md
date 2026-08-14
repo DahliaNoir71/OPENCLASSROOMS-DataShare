@@ -43,7 +43,6 @@ domaine métier a démarré par l'inscription (US03).
 | Frontend Vue 3 + TypeScript (`frontend/`) | ✅ initialisé |
 | Architecture technique | ✅ documentée |
 | Authentification JWT | ✅ `php-open-source-saver/jwt-auth` installé et configuré |
-| Intégration continue | ✅ GitHub Actions + hooks `pre-commit` |
 | Contrat d'API | 🟡 1 opération sur 7 implémentée (`POST /api/auth/register`) |
 | Modèle de données métier | 🟡 conçu — table `files` à écrire |
 | Écrans de la SPA | ⬜ scaffold Vue non encore remplacé |
@@ -240,9 +239,8 @@ Les tests s'exécutent sur une base **SQLite en mémoire** (voir
 [`backend/phpunit.xml`](backend/phpunit.xml)), indépendamment du PostgreSQL de
 développement : aucun conteneur n'est requis pour les lancer.
 
-La CI rejoue en plus la même suite sur PostgreSQL, pour la parité avec la
-production. Pour reproduire ce second passage en local, sur une base
-**dédiée** :
+La production tournant sur PostgreSQL, il est prudent de rejouer la même suite
+sur ce moteur avant une étape importante, sur une base **dédiée** :
 
 ```bash
 docker compose exec db createdb -U datashare datashare_test   # une seule fois
@@ -253,8 +251,7 @@ php artisan test
 
 > ⚠️ Ne jamais pointer ces variables sur `datashare` : les tests utilisent
 > `RefreshDatabase`, qui migre à zéro la base ciblée et effacerait donc les
-> données de développement. D'où la base séparée `datashare_test` — c'est aussi
-> celle que crée le service PostgreSQL de la CI.
+> données de développement. D'où la base séparée `datashare_test`.
 
 ### Frontend
 
@@ -268,13 +265,17 @@ npm run test:e2e:dev       # Cypress en mode interactif sur le serveur de dev
 ```
 
 `test:unit` appelle `vitest` sans `run` : il **reste en watch** et ne rend jamais
-la main. C'est le comportement voulu en développement, mais inutilisable dans un
-script ou un hook — d'où `npx vitest run`, la forme employée par la CI.
+la main. C'est le comportement voulu en développement, mais inutilisable dès
+qu'on veut un code de sortie exploitable — d'où `npx vitest run`.
 
 `test:e2e` construit puis sert l'application avant de lancer Cypress ; le binaire
 Cypress doit avoir été installé (cf. installation du frontend).
 
 ## Qualité de code
+
+Aucun de ces contrôles n'est automatisé : ni hook Git, ni pipeline
+d'intégration continue. Ils se lancent à la main, à l'appréciation de qui
+développe.
 
 ### Backend
 
@@ -308,57 +309,6 @@ Attention au répertoire : lancé depuis `backend/` ou `frontend/`, `README.md`
 désigne le fichier de scaffold de ce sous-projet et non celui-ci — or ces deux
 scaffolds ne sont pas conformes (cf. points ouverts).
 
-## Intégration continue
-
-Les deux dispositifs ne se recouvrent **pas**. Chaque contrôle vit à exactement
-un endroit, choisi par sa nature :
-
-| | Rôle | Contenu |
-| --- | --- | --- |
-| Hooks locaux | ce qui **corrige** | `pint --dirty`, `prettier --write`, hygiène de fichiers, garde-fous du commit, `actionlint` |
-| CI | ce qui **vérifie** | `pint --test`, oxlint, ESLint, `prettier --check`, vue-tsc, PHPUnit, Vitest, build, `composer validate`, `redocly lint`, `dd()` / `dump()`, gitleaks |
-
-Aucun hook ne rejoue un job, aucun job ne rejoue un hook. Un doublon
-n'apporterait que du délai gagné, au prix d'une double maintenance et d'un
-commit ralenti — et une gate lente finit contournée au `--no-verify`, donc ne
-vaut rien.
-
-Corollaire avant d'ajouter un contrôle : s'il **corrige**, il va dans les
-hooks ; s'il **vérifie**, il va en CI. Une vérification en hook local serait
-effacée par un `--no-verify`, ce n'est donc pas une gate.
-
-La conséquence est assumée : un écart de vérification n'est signalé qu'après le
-push. C'est le prix d'un commit rapide.
-
-### Hooks locaux — [`.pre-commit-config.yaml`](.pre-commit-config.yaml)
-
-```bash
-pipx install pre-commit
-pre-commit install
-pre-commit run --all-files  # premier passage sur l'existant
-```
-
-Douze hooks, un seul étage (`pre-commit`), tous rapides. Il n'y a
-**pas** d'étage `pre-push` : tout ce qu'il contenait doublait la CI.
-
-### GitHub Actions — [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-
-Le filet non contournable. Sept jobs, tous bloquants, sur push de branche comme
-sur PR vers `main` : qualité backend, tests backend (SQLite **et** PostgreSQL),
-qualité frontend, tests frontend, gitleaks sur l'historique complet, contrat
-d'API, et l'agrégateur `CI OK` — seul check à déclarer requis sur `main`.
-
-Deux propriétés à connaître avant d'y toucher :
-
-- Le `pint --dirty` des hooks ne corrige que ce qui a bougé depuis `HEAD` : un
-  fichier déjà committé sans avoir été formaté n'y repasse jamais. C'est arrivé
-  — `config/jwt.php` est entré en `59f9cf4`, avant l'installation des hooks en
-  `9f909ea`, et n'a été signalé qu'en CI. C'est le fonctionnement attendu : le
-  `pint --test` de la CI est le filet, le hook n'est qu'une commodité d'écriture.
-- Les actions sont épinglées par SHA de commit, pas par tag ; l'image gitleaks
-  par digest. Voir l'en-tête du workflow pour la
-  procédure de rafraîchissement.
-
 ## Structure du dépôt
 
 ```text
@@ -379,8 +329,6 @@ Deux propriétés à connaître avant d'y toucher :
 │       ├── stores/             Stores Pinia
 │       └── views/              Écrans
 ├── docs/                       Documentation de conception (fait autorité)
-├── .github/workflows/ci.yml    Pipeline d'intégration continue
-├── .pre-commit-config.yaml     Hooks locaux — formatage et garde-fous
 └── compose.yaml                Services de développement (PostgreSQL)
 ```
 
@@ -422,7 +370,6 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [x] Choisir et installer un paquet JWT côté backend →
       `php-open-source-saver/jwt-auth`
 - [x] Aligner `backend/.env.example` sur PostgreSQL
-- [x] Mettre en place une intégration continue (tests, Pint, lint, gitleaks)
 - [x] Choisir et déclarer une licence → MIT
 - [ ] Écrire les migrations du modèle métier : table `files`, et fin d'alignement
       de `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
@@ -434,8 +381,6 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [ ] Remplacer `backend/README.md` et `frontend/README.md`, restés les fichiers
       par défaut de Laravel et du template Vue (28 issues markdownlint à eux
       deux)
-- [ ] Ajouter `markdownlint` **à la CI** une fois ces deux fichiers remplacés —
-      c'est une vérification, sa place est là et non dans les hooks
 - [ ] Mettre à jour [docs/architecture.md](docs/architecture.md), qui indique
       encore qu'aucun paquet JWT n'est installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
