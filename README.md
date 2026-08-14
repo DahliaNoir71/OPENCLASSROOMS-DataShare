@@ -191,6 +191,12 @@ contrat d'API). Routes réellement en place à ce stade, cf.
 | `GET /api/ping` | Sonde de disponibilité, hors contrat d'API |
 | `POST /api/auth/register` | Inscription (US03) — renvoie un JWT et l'utilisateur créé |
 
+Toutes les routes `/api` sont plafonnées à 60 requêtes par minute (par
+utilisateur authentifié, sinon par IP), et les routes `/api/auth/*` à 5 par
+minute et par IP — elles sont ouvertes à tous. Un dépassement renvoie `429`
+avec un en-tête `Retry-After`. Les deux limiteurs sont définis dans
+[`AppServiceProvider`](backend/app/Providers/AppServiceProvider.php).
+
 Pour lancer les services séparément :
 
 ```bash
@@ -385,11 +391,31 @@ Deux propriétés à connaître avant d'y toucher :
   `docker compose down -v && docker compose up -d`, puis `php artisan migrate`.
 - **Tests** : SQLite en mémoire, recréée à chaque exécution.
 
-Le schéma cible est décrit dans [docs/mcd.md](docs/mcd.md). Trois migrations sont
-en place, toutes issues du squelette Laravel à l'exception de `users`, dont la
-colonne `name` a été retirée pour l'inscription (US03). Restent à aligner sur le
+Le schéma cible est décrit dans [docs/mcd.md](docs/mcd.md). Quatre migrations
+sont en place : trois issues du squelette Laravel — à ceci près que `users` a
+perdu sa colonne `name` pour l'inscription (US03) — et une qui ajoute l'index
+d'unicité insensible à la casse décrit ci-dessous. Restent à aligner sur le
 MCD : `email_verified_at` et `remember_token`, absents du modèle métier ; et la
 table `files`, non encore créée.
+
+### Unicité de l'email
+
+PostgreSQL comme SQLite comparent les chaînes en respectant la casse : sans
+précaution, `jane@x.com` et `Jane@x.com` donneraient deux comptes distincts
+malgré la contrainte `unique` sur la colonne. L'unicité est donc tenue à trois
+niveaux :
+
+| Niveau | Où | Rôle |
+| --- | --- | --- |
+| Validation | `RegisterRequest::prepareForValidation()` | Normalise avant que `unique:users,email` ne cherche en base |
+| Écriture | Mutateur `email` du modèle `User` | La colonne ne reçoit que des minuscules |
+| Base | Index `users_email_lower_unique` sur `LOWER(email)` | Filet pour toute écriture qui contournerait Eloquent |
+
+L'index fonctionnel est posé en SQL brut : le constructeur de schéma de Laravel
+n'a pas de syntaxe portable pour indexer une expression. La même instruction est
+acceptée par PostgreSQL et par SQLite, aucune variante par pilote n'est requise.
+Il fait doublon avec le `unique` de la colonne, qu'il subsume — ce dernier est
+conservé pour que la contrainte reste lisible dans la définition de la table.
 
 ## Points ouverts
 

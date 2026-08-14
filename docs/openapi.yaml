@@ -15,7 +15,10 @@ servers:
 
 tags:
   - name: auth
-    description: Création de compte et connexion (US03, US04)
+    description: >
+      Création de compte et connexion (US03, US04). Ces routes sont ouvertes à
+      tous et plafonnées à 5 requêtes par minute et par adresse IP, contre 60
+      pour le reste de l'API.
   - name: files
     description: Gestion des fichiers de l'utilisateur connecté (US01, US05, US06)
   - name: links
@@ -46,6 +49,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AuthResponse" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /auth/login:
     post:
@@ -71,6 +75,7 @@ paths:
               schema: { $ref: "#/components/schemas/AuthResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /files:
     get:
@@ -95,6 +100,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/FileResource" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
     post:
       tags: [files]
       summary: Téléversement d'un fichier (US01)
@@ -131,6 +137,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "413": { description: Fichier supérieur à 1 Go }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /files/{id}:
     delete:
@@ -148,6 +155,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { description: Le fichier appartient à un autre utilisateur }
         "404": { description: Fichier inexistant }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /links/{token}:
     get:
@@ -168,6 +176,7 @@ paths:
               schema: { $ref: "#/components/schemas/LinkMetadata" }
         "404": { description: Lien invalide }
         "410": { description: Lien expiré — fichier plus disponible }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /links/{token}/download:
     post:
@@ -201,6 +210,7 @@ paths:
         "401": { description: Mot de passe absent ou incorrect }
         "404": { description: Lien invalide }
         "410": { description: Lien expiré }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
 components:
   securitySchemes:
@@ -250,6 +260,16 @@ components:
   responses:
     Unauthorized:
       description: Jeton absent, invalide ou expiré
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+    TooManyRequests:
+      description: >
+        Plafond de requêtes dépassé. L'en-tête `Retry-After` indique le nombre
+        de secondes à attendre.
       content:
         application/json:
           schema:

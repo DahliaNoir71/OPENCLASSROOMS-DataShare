@@ -59,6 +59,78 @@ class RegisterTest extends TestCase
         $this->assertSame(1, User::where('email', 'jane.doe@example.com')->count());
     }
 
+    public function test_registration_stores_the_email_lowercased(): void
+    {
+        $response = $this->postJson('/api/auth/register', [
+            'email' => '  Jane.DOE@Example.COM  ',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+
+        $response->assertCreated();
+        $response->assertJsonPath('user.email', 'jane.doe@example.com');
+        $this->assertDatabaseHas('users', ['email' => 'jane.doe@example.com']);
+    }
+
+    public function test_registration_with_an_email_differing_only_by_case_returns_422(): void
+    {
+        User::factory()->create(['email' => 'jane.doe@example.com']);
+
+        $response = $this->postJson('/api/auth/register', [
+            'email' => 'Jane.DOE@Example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+
+        $response->assertUnprocessable();
+        $response->assertJsonValidationErrors(['email']);
+        $this->assertSame(1, User::count());
+    }
+
+    public function test_registration_with_a_non_string_email_returns_422(): void
+    {
+        $response = $this->postJson('/api/auth/register', [
+            'email' => ['jane.doe@example.com'],
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+
+        $response->assertUnprocessable();
+        $response->assertJsonValidationErrors(['email']);
+    }
+
+    public function test_registration_with_an_overlong_email_returns_422(): void
+    {
+        $response = $this->postJson('/api/auth/register', [
+            'email' => str_repeat('a', 250).'@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+
+        $response->assertUnprocessable();
+        $response->assertJsonValidationErrors(['email']);
+    }
+
+    public function test_registration_is_throttled_after_five_attempts_from_the_same_ip(): void
+    {
+        foreach (range(1, 5) as $i) {
+            $this->postJson('/api/auth/register', [
+                'email' => "user{$i}@example.com",
+                'password' => 'password123',
+                'password_confirmation' => 'password123',
+            ])->assertCreated();
+        }
+
+        $response = $this->postJson('/api/auth/register', [
+            'email' => 'user6@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+
+        $response->assertTooManyRequests();
+        $this->assertDatabaseMissing('users', ['email' => 'user6@example.com']);
+    }
+
     public function test_registration_with_invalid_email_returns_422(): void
     {
         $response = $this->postJson('/api/auth/register', [

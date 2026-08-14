@@ -54,6 +54,7 @@ erDiagram
 | Objet | Type | Justification |
 |---|---|---|
 | `users.email` | UNIQUE | Identifiant de connexion (US01) |
+| `LOWER(users.email)` | UNIQUE | L'unicité de l'identifiant ne doit pas dépendre de la casse saisie (US03) |
 | `files.token` | UNIQUE | Résolution du lien public en une requête (US02) |
 | `files.user_id` | FK → `users.id`, `ON DELETE CASCADE` | La suppression d'un compte retire ses fichiers |
 | `files.expires_at` | INDEX | Balayage quotidien des fichiers expirés (US10) |
