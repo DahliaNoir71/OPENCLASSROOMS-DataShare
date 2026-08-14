@@ -235,13 +235,21 @@ jobs:
       # Garde-fou "empty scan" : une suite qui n'execute AUCUN test sort en
       # succes. Un filtre casse ou un mauvais chemin donnerait alors un vert
       # portant sur rien. On exige au moins un cas execute.
+      #
+      # On compte les <testcase> et NON un attribut `tests` sur la racine :
+      # PHPUnit ne pose cet attribut que sur les <testsuite>, jamais sur
+      # <testsuites> (cf. JunitXmlLogger::testSuiteFinished()). Le lire sur la
+      # racine renvoie toujours 0 et fait echouer la gate sur une suite pleine.
+      # Le decompte des <testcase> est stable quelle que soit la version.
       - name: Garde-fou — la suite a bien execute des tests
         run: |
           php -r '
             $f = "junit.xml";
             if (!is_file($f)) { fwrite(STDERR, "[FAIL] junit.xml absent\n"); exit(1); }
             $x = simplexml_load_file($f);
-            $n = (int) $x["tests"];
+            if ($x === false) { fwrite(STDERR, "[FAIL] junit.xml illisible\n"); exit(1); }
+            $cases = $x->xpath("//testcase");
+            $n = $cases === false ? 0 : count($cases);
             if ($n < 1) { fwrite(STDERR, "[FAIL] 0 test execute — suite vide\n"); exit(1); }
             echo "[OK] {$n} tests executes\n";
           '
