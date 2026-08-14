@@ -239,13 +239,15 @@ components:
 
     NoStore:
       description: >
-        Toujours `private, no-store`. Une réponse conservée par un
+        Toujours `no-store, private` — Symfony ré-ordonne les directives par
+        ordre alphabétique. Posé sur toute réponse `/api` par le middleware
+        `NoStore`, y compris les erreurs. Une réponse conservée par un
         intermédiaire — proxy, CDN, cache du navigateur — servirait un
         contenu sans repasser par le contrôle d'expiration, le mot de passe
         de partage (US09) ou l'identité du porteur du jeton. Cf.
         `docs/architecture.md`, section « Cache ».
       required: true
-      schema: { type: string, const: "private, no-store" }
+      schema: { type: string, const: "no-store, private" }
 
     ContentDisposition:
       description: >

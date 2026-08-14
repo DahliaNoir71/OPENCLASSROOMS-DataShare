@@ -183,7 +183,15 @@ minute et par IP — elles sont ouvertes à tous. Un dépassement renvoie `429`
 avec un en-tête `Retry-After`. Les deux limiteurs sont définis dans
 [`AppServiceProvider`](backend/app/Providers/AppServiceProvider.php) ; leurs
 compteurs sont tenus dans le store de cache (`CACHE_STORE=database`, soit la
-table `cache`), seul usage du cache à ce stade.
+table `cache`), seul usage du cache à ce stade. Chaque dépassement laisse une
+ligne `warning` dans les journaux : sans elle, Laravel ne rapporte pas les `429`
+et une attaque par bourrage d'identifiants passerait inaperçue.
+
+Toute réponse `/api` porte `Cache-Control: no-store, private`, posé par le
+middleware [`NoStore`](backend/app/Http/Middleware/NoStore.php) en tête du
+groupe : aucune réponse de cette API n'est stockable, ni par un proxy ni par le
+navigateur. Le raisonnement est dans
+[docs/architecture.md](docs/architecture.md#cache).
 
 Pour lancer les services séparément :
 
@@ -362,11 +370,10 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       encore qu'aucun paquet JWT n'était installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
       sans laquelle aucune purge n'a lieu
-- [ ] Journaliser explicitement ce qui n'a pas d'autre canal de remontée : rapport
-      de purge du scheduler, échecs d'authentification, `429` (cf.
-      [docs/architecture.md](docs/architecture.md#journalisation-et-supervision))
-- [ ] Poser `Cache-Control: private, no-store` sur la réponse de téléchargement,
-      à l'implémentation de `POST /links/{token}/download`
+- [ ] Journaliser le rapport de purge du scheduler et les échecs
+      d'authentification, seuls manquants des trois familles décrites dans
+      [docs/architecture.md](docs/architecture.md#journalisation-et-supervision)
+      — les `429` et le contexte d'exception sont faits
 - [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=warning`, canal `daily` ou
       `stderr`, et `CACHE_STORE=redis` si la charge le justifie
 - [ ] Déclarer une URL de production dans `servers` du contrat d'API, au premier

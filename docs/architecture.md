@@ -139,7 +139,7 @@ sequenceDiagram
         P-->>L: ligne du fichier
         L->>F: ouverture en flux
         F-->>L: flux binaire
-        L-->>V: 200 octet-stream, Cache-Control private no-store
+        L-->>V: 200 octet-stream, Cache-Control no-store
         V-->>D: enregistrement du fichier
     end
     L->>G: ligne de journal — code, durée, identifiants numériques
@@ -182,11 +182,20 @@ Aucune réponse d'API ne l'est, et c'est une décision, pas un oubli :
   décrite plus bas.
 - **Elles dépendent de l'identité.** L'historique est celui du porteur du
   jeton ; un cache partagé exposerait les fichiers d'autrui.
-- **Le contenu téléchargé doit porter `Cache-Control: private, no-store`.** Un
-  proxy ou un CDN qui en garderait une copie servirait le fichier sans repasser
-  par le contrôle d'expiration ni par le mot de passe (US09) : exactement ce que
-  le choix « fichiers hors racine web » cherche à empêcher. Le cache est ici un
+- **Aucune réponse ne doit pouvoir être stockée.** Un proxy ou un CDN qui
+  garderait une copie du téléchargement servirait le fichier sans repasser par
+  le contrôle d'expiration ni par le mot de passe (US09) : exactement ce que le
+  choix « fichiers hors racine web » cherche à empêcher. Le cache est ici un
   risque de sécurité avant d'être un gain de performance.
+
+La règle est appliquée par un middleware, `NoStore`, placé **en tête** du groupe
+`api` : toute réponse `/api` en ressort avec `Cache-Control: no-store, private`
+— les erreurs comprises, puisqu'une réponse construite à partir d'une exception
+remonte elle aussi par le chemin de retour du middleware. Le défaut de Symfony,
+`no-cache, private`, ne suffisait pas : `no-cache` autorise le stockage tant
+qu'il y a revalidation, quand `no-store` l'interdit. La distinction est
+matérielle pour un corps qui transporte un JWT. L'ordre des directives sur le
+fil est alphabétique, Symfony les ré-ordonnant à l'écriture.
 
 Le vrai levier de performance du projet n'est donc pas le cache mais le
 **streaming** : un fichier de 1 Go est lu et écrit en flux, jamais chargé en
@@ -211,23 +220,31 @@ la vide sans effet de bord, puisqu'elle ne contient aucune donnée métier.
 
 `LOG_CHANNEL=stack` réduit à un seul canal `single`, soit
 `storage/logs/laravel.log`, au niveau `debug`. En développement, `php artisan
-pail` suit ce flux en direct. Rien n'est encore journalisé explicitement par le
-code métier : ce qu'on y lit est ce que Laravel y écrit seul, principalement les
-exceptions non rattrapées.
+pail` suit ce flux en direct.
 
-### Ce qui doit y être écrit
+Le point à connaître : **ce que Laravel écrit seul est presque vide**. Sa liste
+`internalDontReport` couvre `HttpException`, `ValidationException`,
+`AuthenticationException` et `AuthorizationException` — autrement dit un `401`,
+un `403`, un `422` ou un `429` ne laisse par défaut aucune trace. Seule une
+erreur non rattrapée est journalisée. Une journalisation utile suppose donc des
+écritures explicites, pas la confiance dans le comportement par défaut.
 
-Trois familles d'événements, retenues parce qu'elles n'ont **aucun autre canal
-de remontée** :
+Deux sont en place :
+
+- **Les dépassements de quota**, écrits en `warning` par le callback de réponse
+  des deux limiteurs (`AppServiceProvider`), avec le limiteur concerné, l'IP, la
+  méthode, le motif de route et l'identifiant numérique de l'utilisateur.
+- **Le contexte des exceptions rapportées** — méthode et motif de route —
+  ajouté dans `bootstrap/app.php`, pour que les 5xx soient diagnosticables.
+
+### Ce qui reste à écrire
 
 - **Le rapport de purge** : nombre de fichiers supprimés, échecs de suppression
   physique. Sans lui, un scheduler qui ne tourne pas est indétectable jusqu'à
-  saturation du disque.
-- **Les échecs d'authentification et les `429`** : pris isolément ce sont des
-  réponses normales ; leur concentration signale un bourrage d'identifiants ou
-  une énumération de comptes.
-- **Les erreurs 5xx**, avec le contexte nécessaire au diagnostic — le client,
-  lui, ne reçoit qu'un message générique.
+  saturation du disque. Attend l'écriture du scheduler.
+- **Les échecs d'authentification** : pris isolément ce sont des réponses
+  normales ; leur concentration signale un bourrage d'identifiants. Attend la
+  route de connexion (US04).
 
 ### Ce qui ne doit jamais y entrer
 
@@ -239,6 +256,15 @@ de remontée** :
   personnelles, dont un journal conservé plusieurs jours devient un traitement à
   part entière. On journalise l'identifiant numérique de l'utilisateur ou du
   fichier, jamais sa valeur parlante.
+- **Le chemin résolu d'une requête**, pour la même raison que le token : l'URL
+  d'un téléchargement le contient. On journalise le **motif** de route
+  (`api/links/{token}/download`), jamais le chemin appelé.
+
+Une seule exception assumée : **l'adresse IP** des événements de sécurité
+(dépassement de quota, et plus tard échec d'authentification). C'est une donnée
+personnelle, mais un journal de sécurité sans la source de l'appel ne sert à
+rien — il n'autoriserait ni corrélation ni blocage. La rotation du canal borne
+sa conservation.
 
 Corollaire d'exploitation : `APP_DEBUG` doit passer à `false` en production. À
 `true`, une trace d'exception part dans la réponse HTTP, paramètres de requête
@@ -323,4 +349,11 @@ cache, tous pilotés par variables d'environnement.
 Ce document décrit l'architecture cible, celle du contrat d'API. À ce stade,
 une seule des sept opérations est implémentée (`POST /api/auth/register`) : le
 parcours de téléchargement schématisé plus haut est donc une conception, pas un
-état des lieux. Le limiteur de débit, lui, est en place et opérant.
+état des lieux.
+
+Sont en revanche en place et opérants, parce qu'ils ne dépendent d'aucune route
+en particulier : les deux limiteurs de débit, le middleware `NoStore` sur tout
+le groupe `api`, la journalisation des dépassements de quota et le contexte
+d'exception. Ce qui reste attaché à une opération non écrite — flux binaire,
+`Content-Disposition`, contrôle d'expiration, rapport de purge — arrivera avec
+elle.
