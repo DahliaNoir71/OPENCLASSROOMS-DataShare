@@ -321,8 +321,8 @@ Détection précoce, contournable avec `--no-verify`. Deux étages :
 
 | Étage | Contrôles |
 | --- | --- |
-| `pre-commit` (rapide) | gitleaks, hygiène de fichiers, `check-yaml`, Pint, `composer validate`, absence de `dd()` / `dump()`, oxlint, Prettier |
-| `pre-push` (lent) | `php artisan test`, ESLint, vue-tsc |
+| `pre-commit` (rapide) | gitleaks, hygiène de fichiers, `check-yaml`, `check-json`, `pint --dirty`, `composer validate`, absence de `dd()` / `dump()`, oxlint, Prettier, actionlint, `redocly lint` |
+| `pre-push` (lent) | `php artisan test`, `pint --test` sur tout le backend, ESLint, vue-tsc, Vitest |
 
 `default_install_hook_types` déclare les deux types : un simple
 `pre-commit install` suffit, les gates de push ne peuvent pas être oubliées.
@@ -336,12 +336,11 @@ l'agrégateur `CI OK` — seul check à déclarer requis sur `main`.
 
 Deux propriétés à connaître avant d'y toucher :
 
-- Le périmètre des hooks et celui de la CI **diffèrent** : Pint tourne en
-  `--dirty` en local (ce qui a bougé depuis `HEAD`) et en `--test` en CI (tout
-  le backend). Un fichier déjà dans `HEAD` et non modifié n'est donc jamais
-  revu en local — ce qui vaut pour tout ce qui est entré avant l'installation
-  des hooks, ou via `--no-verify`. C'est ainsi que `config/jwt.php`, publié en
-  `59f9cf4` avant l'arrivée des hooks en `9f909ea`, n'a été signalé qu'en CI.
+- Le `pint --dirty` du pre-commit ne voit que ce qui a bougé depuis `HEAD` : un
+  fichier déjà committé sans avoir été formaté n'y repasse jamais. C'est arrivé
+  — `config/jwt.php` est entré en `59f9cf4`, avant l'installation des hooks en
+  `9f909ea`, et n'a été signalé qu'en CI. Un `pint --test` sur tout le backend
+  a donc été ajouté au pre-push : l'écart de périmètre est fermé.
 - Les actions sont épinglées par SHA de commit, pas par tag ; l'image gitleaks
   par digest, identique à celui du hook. Voir l'en-tête du workflow pour la
   procédure de rafraîchissement.
@@ -399,7 +398,9 @@ table `files`, non encore créée.
 - [ ] Construire les écrans de la SPA d'après les maquettes ; le scaffold Vue
       (`HelloWorld`, `TheWelcome`, `AboutView`, store `counter`) est encore en place
 - [ ] Remplacer `backend/README.md` et `frontend/README.md`, restés les fichiers
-      par défaut de Laravel et du template Vue
+      par défaut de Laravel et du template Vue (28 issues markdownlint à eux
+      deux) ; brancher le hook `markdownlint` dans le même mouvement — l'ajouter
+      avant bloquerait tout commit touchant au Markdown
 - [ ] Mettre à jour [docs/architecture.md](docs/architecture.md), qui indique
       encore qu'aucun paquet JWT n'est installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,

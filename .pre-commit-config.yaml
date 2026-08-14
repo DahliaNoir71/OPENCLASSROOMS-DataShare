@@ -15,11 +15,25 @@
 #   - ces hooks sont la DETECTION PRECOCE, sur le poste de dev. Ils sont
 #     contournables (`git commit --no-verify`) et ne font donc pas foi ;
 #   - la CI est le filet NON CONTOURNABLE : elle rejoue Pint, oxlint/ESLint,
-#     vue-tsc et `php artisan test` sur chaque PR vers main, et c'est elle qui
-#     conditionne le merge via le check requis "CI OK".
+#     vue-tsc, Vitest et `php artisan test` sur chaque PR vers main, et c'est
+#     elle qui conditionne le merge via le check requis "CI OK".
 # Les versions des outils partages sont alignees entre les deux fichiers
 # (gitleaks v8.30.0) pour qu'un run local vert ne puisse pas masquer un
 # pipeline rouge. Voir le bloc symetrique en tete de ci.yml.
+#
+# -- CE QUI N'EST DELIBEREMENT PAS COUVERT ICI -------------------------------
+# Ces absences sont des choix, pas des oublis :
+#   * leg PostgreSQL de la suite backend : la parite avec la production est le
+#     role de la CI. En local, phpunit.xml suffit (SQLite :memory:).
+#   * `composer audit` / `npm audit` : non bloquants en CI, et dependants du
+#     reseau. Un hook qui echoue faute de connexion serait vite contourne.
+#   * `npm run build-only` : couvert en CI. vue-tsc attrape ici l'essentiel.
+#   * markdownlint : .markdownlint-cli2.jsonc existe, mais backend/README.md et
+#     frontend/README.md sont encore les fichiers de scaffold (28 issues a eux
+#     deux). Brancher le hook avant de les remplacer bloquerait tout commit
+#     touchant au Markdown. A ajouter en meme temps que leur remplacement.
+#   * portee de gitleaks : diff indexe ici, historique complet en CI (voir 1.).
+#   * Prettier : --write ici, --check en CI (asymetrie assumee, voir 4.).
 #
 # Installation :
 #   pipx install pre-commit        # (deja installe ici)
@@ -29,8 +43,8 @@
 # =============================================================================
 
 # Installe les deux types de hooks des un simple `pre-commit install`, pour que
-# les gates pre-push (ESLint, vue-tsc, php artisan test) ne soient jamais
-# silencieusement ignorees.
+# les gates pre-push (Pint --test, php artisan test, ESLint, vue-tsc, Vitest)
+# ne soient jamais silencieusement ignorees.
 default_install_hook_types: [pre-commit, pre-push]
 
 # Rattache par defaut chaque hook au stage pre-commit. SANS cette ligne,
@@ -148,6 +162,22 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      # Complement du `pint --dirty` ci-dessus, PAS un doublon. --dirty ne voit
+      # que ce qui a bouge depuis HEAD : un fichier deja committe sans avoir ete
+      # formate n'est jamais revu en local. C'est arrive — backend/config/jwt.php
+      # est entre en 59f9cf4, avant l'installation des hooks (9f909ea), et n'a
+      # ete signale qu'en CI. Ce hook rejoue donc le `--test` de la CI sur TOUT
+      # le backend, une fois par push.
+      # --test et non --dirty ici : verification seule. Un auto-correcteur au
+      # pre-push reecrirait des fichiers et ferait echouer le push.
+      - id: pint-all
+        name: Laravel Pint --test (tout le backend)
+        entry: bash -c 'cd backend && ./vendor/bin/pint --test'
+        language: system
+        files: ^backend/.*\.php$
+        pass_filenames: false
+        stages: [pre-push]
+
   # ===================================================
   # 4. Frontend Vue 3 — oxlint / Prettier / ESLint / vue-tsc
   # ===================================================
@@ -203,3 +233,65 @@ repos:
         files: ^frontend/.*\.(ts|tsx|vue)$
         pass_filenames: false
         stages: [pre-push]
+
+      # Pendant frontend du hook phpunit : sans lui, les tests backend tournent
+      # au pre-push mais ceux de la SPA nulle part, et une regression frontend
+      # n'apparait qu'en CI. Cette asymetrie n'etait pas un choix.
+      # `npx vitest run` et NON `npm run test:unit` : le script appelle `vitest`
+      # sans `run`, qui reste en mode watch — le hook ne rendrait jamais la main.
+      # Meme forme que la CI.
+      - id: frontend-vitest
+        name: vitest run (frontend)
+        entry: bash -c 'cd frontend && npx vitest run'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs|vue)$
+        pass_filenames: false
+        stages: [pre-push]
+
+  # ===================================================
+  # 5. Workflow GitHub Actions — actionlint
+  # ===================================================
+  # check-yaml (section 2) ne valide que la SYNTAXE YAML de ci.yml. Il laisse
+  # donc passer tout ce qui est propre a Actions : un `needs:` pointant sur un
+  # job inexistant, une expression ${{ }} malformee, un `runs-on` mal
+  # orthographie, une cle inconnue. Sur un workflow de 450 lignes qui est le
+  # seul filet non contournable du projet, ces erreurs ne se voyaient qu'apres
+  # un push — et un workflow qui refuse de demarrer laisse le check requis
+  # "CI OK" en attente au lieu de virer au rouge.
+  #
+  # `language: golang` : pre-commit (4.6.1 ici) telecharge lui-meme la
+  # toolchain, aucun Go a installer sur le poste. Si ce comportement pose
+  # probleme, l'amont fournit `actionlint-docker` (Docker est deja un prerequis
+  # du projet pour PostgreSQL) et `actionlint-system` (binaire deja installe).
+  #
+  # actionlint delegue a shellcheck l'analyse des blocs `run:` quand shellcheck
+  # est present. C'est souhaitable — ci.yml contient du bash non trivial — mais
+  # cela peut signaler des ecarts preexistants au premier passage.
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+
+  # ===================================================
+  # 6. Contrat d'API — Redocly
+  # ===================================================
+  # docs/openapi.yaml fait autorite sur le contrat (cf. README), et n'etait
+  # verifie par personne : check-yaml n'en controle que la syntaxe, pas le
+  # schema OpenAPI 3.1. Une operation mal formee ou une $ref cassee passaient.
+  #
+  # Version epinglee et non `@latest` : meme raison que le pin par SHA des
+  # actions dans ci.yml. Un lint qui change de comportement sans qu'on l'ait
+  # decide n'est pas une gate.
+  #
+  # Redocly sort en echec sur les ERREURS seulement ; les avertissements
+  # n'echouent pas. L'avertissement `no-server-example.com` est attendu et
+  # assume (aucun deploiement, donc pas d'URL de production a declarer) : ce
+  # hook doit donc passer au vert malgre lui.
+  - repo: local
+    hooks:
+      - id: openapi-lint
+        name: redocly lint (docs/openapi.yaml)
+        entry: bash -c 'npx --yes @redocly/cli@2.46.1 lint docs/openapi.yaml'
+        language: system
+        files: ^docs/openapi\.yaml$
+        pass_filenames: false
