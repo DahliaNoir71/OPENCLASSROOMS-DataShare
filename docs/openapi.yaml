@@ -17,9 +17,13 @@ servers:
 tags:
   - name: auth
     description: >
-      Création de compte et connexion (US03, US04). Ces routes sont ouvertes à
-      tous et plafonnées à 5 requêtes par minute et par adresse IP, contre 60
-      pour le reste de l'API.
+      Création de compte, connexion et cycle de vie du jeton (US03, US04).
+      `/auth/register` et `/auth/login` sont ouvertes à tous et plafonnées à 5
+      requêtes par minute et par adresse IP, car ce sont les cibles d'un
+      bourrage d'identifiants. `/auth/me` et `/auth/logout` exigent un jeton et
+      relèvent du limiteur standard de l'API — 60 requêtes par minute, comptées
+      par utilisateur : un plafond par IP y pénaliserait une session normale et
+      ferait s'entraver plusieurs utilisateurs partageant une même sortie NAT.
   - name: files
     description: Gestion des fichiers de l'utilisateur connecté (US01, US05, US06)
   - name: links
@@ -80,6 +84,51 @@ paths:
               schema: { $ref: "#/components/schemas/AuthResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Utilisateur porteur du jeton (US04)
+      operationId: me
+      security: [{ bearerAuth: [] }]
+      description: >
+        Résout l'identité rattachée au jeton présenté. Sert au front à
+        restaurer une session au chargement et à vérifier qu'un jeton conservé
+        localement est toujours valide.
+      responses:
+        "200":
+          description: Jeton valide, utilisateur résolu
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Déconnexion (US04)
+      operationId: logout
+      security: [{ bearerAuth: [] }]
+      description: >
+        Révoque le jeton courant côté serveur, en l'inscrivant sur la liste
+        noire de jwt-auth. Ce n'est pas un simple oubli côté client : le même
+        jeton, rejoué, est refusé jusqu'à son expiration naturelle.
+      responses:
+        "200":
+          description: Jeton révoqué
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /files:
@@ -262,6 +311,15 @@ components:
       type: object
       properties:
         token: { type: string, description: JWT à placer en Authorization Bearer }
+        user:
+          type: object
+          properties:
+            id: { type: integer }
+            email: { type: string, format: email }
+
+    UserResponse:
+      type: object
+      properties:
         user:
           type: object
           properties:

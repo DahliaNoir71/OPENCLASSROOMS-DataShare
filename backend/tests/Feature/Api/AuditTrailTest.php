@@ -14,6 +14,8 @@ class AuditTrailTest extends TestCase
 
     private const REGISTER_URI = '/api/auth/register';
 
+    private const LOGIN_URI = '/api/auth/login';
+
     private const MESSAGE = 'User registered';
 
     private const EMAIL = 'jane.doe@example.com';
@@ -56,6 +58,73 @@ class AuditTrailTest extends TestCase
         User::factory()->create();
 
         $this->assertSame([], $this->logsWithMessage(self::MESSAGE));
+    }
+
+    public function test_a_successful_login_leaves_an_audit_line(): void
+    {
+        $user = User::factory()->create([
+            'email' => self::EMAIL,
+            'password' => 'password123',
+        ]);
+
+        $this->postJson(self::LOGIN_URI, [
+            'email' => self::EMAIL,
+            'password' => 'password123',
+        ])->assertOk();
+
+        $lines = $this->logsWithMessage('User logged in');
+
+        $this->assertCount(1, $lines);
+        $this->assertSame('info', $lines[0]->level);
+        $this->assertSame(['user_id' => $user->id], $lines[0]->context);
+    }
+
+    /**
+     * A failed sign-in is worth a line — it is the signal a credential
+     * stuffing run leaves behind — but the line must not name the account
+     * tried, or the log file becomes the enumeration oracle the response
+     * refuses to be.
+     */
+    public function test_a_failed_login_leaves_an_audit_line_without_the_email(): void
+    {
+        User::factory()->create([
+            'email' => self::EMAIL,
+            'password' => 'password123',
+        ]);
+
+        $this->postJson(self::LOGIN_URI, [
+            'email' => self::EMAIL,
+            'password' => 'wrong-password',
+        ])->assertUnauthorized();
+
+        $lines = $this->logsWithMessage('Login failed');
+
+        $this->assertCount(1, $lines);
+        $this->assertSame('warning', $lines[0]->level);
+        $this->assertSame(['ip'], array_keys($lines[0]->context));
+        $this->assertStringNotContainsString(self::EMAIL, json_encode($lines[0]->context));
+        $this->assertSame([], $this->logsWithMessage('User logged in'));
+    }
+
+    public function test_a_logout_leaves_an_audit_line(): void
+    {
+        $user = User::factory()->create([
+            'email' => self::EMAIL,
+            'password' => 'password123',
+        ]);
+
+        $token = $this->postJson(self::LOGIN_URI, [
+            'email' => self::EMAIL,
+            'password' => 'password123',
+        ])->json('token');
+
+        $this->withToken($token)->postJson('/api/auth/logout')->assertOk();
+
+        $lines = $this->logsWithMessage('User logged out');
+
+        $this->assertCount(1, $lines);
+        $this->assertSame('info', $lines[0]->level);
+        $this->assertSame(['user_id' => $user->id], $lines[0]->context);
     }
 
     /**

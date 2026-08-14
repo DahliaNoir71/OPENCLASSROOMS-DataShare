@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\NoStore;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -21,6 +22,17 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );
+
+        // Laravel's own 401 body reads "Unauthenticated." — the only English
+        // string the API would return, in the middle of French validation and
+        // rate limit messages. Same status, same shape, one language.
+        $exceptions->render(function (AuthenticationException $e, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json(['message' => 'Authentification requise.'], 401);
+        });
 
         // Context attached to every reported exception. The route pattern, not
         // the resolved path: a download URL carries the share token, which is a
