@@ -337,9 +337,11 @@ l'agrégateur `CI OK` — seul check à déclarer requis sur `main`.
 Deux propriétés à connaître avant d'y toucher :
 
 - Le périmètre des hooks et celui de la CI **diffèrent** : Pint tourne en
-  `--dirty` en local (fichiers sales uniquement) et en `--test` en CI (tout le
-  backend). Un fichier arrivé par `vendor:publish` peut donc passer les hooks et
-  échouer en CI.
+  `--dirty` en local (ce qui a bougé depuis `HEAD`) et en `--test` en CI (tout
+  le backend). Un fichier déjà dans `HEAD` et non modifié n'est donc jamais
+  revu en local — ce qui vaut pour tout ce qui est entré avant l'installation
+  des hooks, ou via `--no-verify`. C'est ainsi que `config/jwt.php`, publié en
+  `59f9cf4` avant l'arrivée des hooks en `9f909ea`, n'a été signalé qu'en CI.
 - Les actions sont épinglées par SHA de commit, pas par tag ; l'image gitleaks
   par digest, identique à celui du hook. Voir l'en-tête du workflow pour la
   procédure de rafraîchissement.
