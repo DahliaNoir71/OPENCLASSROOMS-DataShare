@@ -27,18 +27,19 @@ npx @redocly/cli lint docs/openapi.yaml
 ## État du projet
 
 La conception fonctionnelle et technique est arrêtée ; l'implémentation du
-domaine métier n'est pas commencée.
+domaine métier a démarré par l'inscription (US03).
 
 | Brique | État |
 | --- | --- |
-| Backend Laravel (squelette, migrations `users` / `cache` / `jobs`) | ✅ initialisé |
+| Backend Laravel | ✅ initialisé |
 | Base de données PostgreSQL via Docker Compose | ✅ opérationnelle |
 | Frontend Vue 3 + TypeScript (`frontend/`) | ✅ initialisé |
 | Architecture technique | ✅ documentée |
-| Modèle de données métier | 🟡 conçu — migrations à écrire |
-| Contrat d'API | 🟡 conçu — routes et contrôleurs à écrire |
-| Authentification JWT | 🟡 décidée — aucun paquet installé |
-| Intégration continue | ⬜ absente |
+| Authentification JWT | ✅ `php-open-source-saver/jwt-auth` installé et configuré |
+| Intégration continue | ✅ GitHub Actions + hooks `pre-commit` |
+| Contrat d'API | 🟡 1 opération sur 7 implémentée (`POST /api/auth/register`) |
+| Modèle de données métier | 🟡 conçu — table `files` à écrire |
+| Écrans de la SPA | ⬜ scaffold Vue non encore remplacé |
 
 ## Stack technique
 
@@ -49,6 +50,7 @@ domaine métier n'est pas commencée.
 | PHP | ^8.3 | Langage backend |
 | Laravel | ^13.8 | Framework de l'API REST |
 | PostgreSQL | 17.5 | Base de données (conteneur Docker) |
+| php-open-source-saver/jwt-auth | ^2.9 | Émission et vérification des JWT |
 | PHPUnit | ^12.5 | Tests automatisés |
 | Laravel Pint | ^1.27 | Formatage du code PHP |
 | Laravel Pail | ^1.2 | Lecture des logs en direct |
@@ -77,8 +79,9 @@ sa propre chaîne de build.
 
 - PHP **8.3** ou supérieur, avec les extensions habituelles de Laravel (dont `pdo_pgsql`)
 - [Composer](https://getcomposer.org/) 2.x
-- [Node.js](https://nodejs.org/) **22.18+ ou 24.12+** et npm — contrainte `engines`
-  de [`frontend/package.json`](frontend/package.json) ; un Node 22.0 à 22.17 est refusé
+- [Node.js](https://nodejs.org/) **22.18.x → 22.x, ou 24.12+** et npm — contrainte
+  `engines` de [`frontend/package.json`](frontend/package.json)
+  (`^22.18.0 || >=24.12.0`) : un Node 22.0 à 22.17 est refusé, et Node 23 aussi
 - [Docker](https://docs.docker.com/) avec Docker Compose (pour PostgreSQL)
 
 ## Installation
@@ -115,29 +118,21 @@ composer install
 cp .env.example .env
 ```
 
-> ⚠️ **À faire avant toute migration.** Le fichier `.env.example` est encore celui
-> livré par défaut avec Laravel et pointe sur SQLite. Il faut renseigner la
-> connexion PostgreSQL dans le `.env` fraîchement créé, sinon les migrations
-> créeront une base SQLite locale au lieu d'utiliser le conteneur :
->
-> ```dotenv
-> DB_CONNECTION=pgsql
-> DB_HOST=127.0.0.1
-> DB_PORT=5432
-> DB_DATABASE=datashare
-> DB_USERNAME=datashare
-> DB_PASSWORD=<valeur définie dans compose.yaml>
-> ```
->
-> Il serait souhaitable d'aligner directement `.env.example` sur PostgreSQL pour
-> éviter cette étape manuelle.
+[`.env.example`](backend/.env.example) est déjà aligné sur le PostgreSQL de
+[`compose.yaml`](compose.yaml) : aucune variable `DB_*` n'est à retoucher pour un
+poste de développement.
 
-Puis générer la clé applicative et appliquer le schéma :
+Puis générer les deux secrets et appliquer le schéma :
 
 ```bash
-php artisan key:generate
+php artisan key:generate     # APP_KEY — chiffrement applicatif
+php artisan jwt:secret       # JWT_SECRET — signature des jetons (HS256)
 php artisan migrate
 ```
+
+Les deux clés sont laissées vides dans `.env.example` et ne sont jamais
+versionnées. **`jwt:secret` n'est pas optionnel** : sans lui, toute route
+d'authentification échoue à la signature.
 
 ### 4. Installer les assets du backend
 
@@ -148,6 +143,11 @@ npm run build
 
 Le fichier `.npmrc` du backend force `ignore-scripts=true` : les scripts
 d'installation des paquets npm ne sont pas exécutés, par précaution.
+
+> Les étapes 3 et 4 sont enchaînées par `composer run setup` (`composer install`,
+> copie du `.env`, `key:generate`, `migrate --force`, `npm install
+> --ignore-scripts`, `npm run build`). Attention, ce script **n'appelle pas**
+> `jwt:secret` : il reste à lancer à la main après coup.
 
 ### 5. Installer le frontend
 
@@ -176,7 +176,13 @@ composer run dev
 ```
 
 L'API est alors disponible sur <http://localhost:8000> (préfixe `/api`, cf. le
-contrat d'API).
+contrat d'API). Routes réellement en place à ce stade, cf.
+[`backend/routes/api.php`](backend/routes/api.php) :
+
+| Route | Rôle |
+| --- | --- |
+| `GET /api/ping` | Sonde de disponibilité, hors contrat d'API |
+| `POST /api/auth/register` | Inscription (US03) — renvoie un JWT et l'utilisateur créé |
 
 Pour lancer les services séparément :
 
@@ -197,7 +203,12 @@ npm run build                              # type-check puis build de production
 npm run preview                            # sert le build sur le port 4173
 ```
 
-Les deux serveurs tournent en parallèle : la SPA appelle l'API sur le port 8000.
+Les deux serveurs tournent en parallèle. La SPA n'appelle **pas** le port 8000
+directement : [`frontend/vite.config.ts`](frontend/vite.config.ts) déclare un
+proxy qui relaie `/api` vers `http://localhost:8000`. Côté code, les requêtes
+visent donc des chemins relatifs (`/api/...`), ce qui évite le CORS en
+développement — mais impose que `php artisan serve` tourne, sinon le proxy
+renvoie une erreur de connexion.
 
 ## Tests
 
@@ -205,22 +216,47 @@ Les deux serveurs tournent en parallèle : la SPA appelle l'API sur le port 8000
 
 ```bash
 cd backend
-composer run test          # équivaut à : php artisan config:clear && php artisan test
+composer run test                                     # config:clear puis php artisan test
+php artisan test                                      # la suite seule
+php artisan test tests/Feature/Auth/RegisterTest.php  # un seul fichier
+php artisan test --filter=RegisterTest                # filtrer par nom
+php artisan test --testsuite=Feature                  # une seule suite
 ```
 
 Les tests s'exécutent sur une base **SQLite en mémoire** (voir
 [`backend/phpunit.xml`](backend/phpunit.xml)), indépendamment du PostgreSQL de
 développement : aucun conteneur n'est requis pour les lancer.
 
+La CI rejoue en plus la même suite sur PostgreSQL, pour la parité avec la
+production. Pour reproduire ce second passage en local, sur une base
+**dédiée** :
+
+```bash
+docker compose exec db createdb -U datashare datashare_test   # une seule fois
+DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 \
+DB_DATABASE=datashare_test DB_USERNAME=datashare DB_PASSWORD=datashare_local \
+php artisan test
+```
+
+> ⚠️ Ne jamais pointer ces variables sur `datashare` : les tests utilisent
+> `RefreshDatabase`, qui migre à zéro la base ciblée et effacerait donc les
+> données de développement. D'où la base séparée `datashare_test` — c'est aussi
+> celle que crée le service PostgreSQL de la CI.
+
 ### Frontend
 
 ```bash
 cd frontend
-npm run test:unit          # Vitest
+npm run test:unit          # Vitest en mode watch (interactif)
+npx vitest run             # Vitest en une passe, code de sortie exploitable
 npm run type-check         # vue-tsc
 npm run test:e2e           # Cypress sur le build de production (port 4173)
 npm run test:e2e:dev       # Cypress en mode interactif sur le serveur de dev
 ```
+
+`test:unit` appelle `vitest` sans `run` : il **reste en watch** et ne rend jamais
+la main. C'est le comportement voulu en développement, mais inutilisable dans un
+script ou un hook — d'où `npx vitest run`, la forme employée par la CI.
 
 `test:e2e` construit puis sert l'application avant de lancer Cypress ; le binaire
 Cypress doit avoir été installé (cf. installation du frontend).
@@ -243,27 +279,71 @@ npm run lint               # oxlint puis ESLint, avec correction automatique
 npm run format             # Prettier sur src/
 ```
 
+## Intégration continue
+
+Deux filets superposés, volontairement asymétriques : les hooks locaux
+**corrigent** (`--fix`, `--write`), la CI **vérifie** seulement (`--test`,
+`--check`). Un correcteur en CI réécrirait un runner jetable puis sortirait en
+succès — un faux vert.
+
+### Hooks locaux — [`.pre-commit-config.yaml`](.pre-commit-config.yaml)
+
+```bash
+pipx install pre-commit
+pre-commit install          # installe les hooks pre-commit ET pre-push
+pre-commit run --all-files  # premier passage sur l'existant
+```
+
+Détection précoce, contournable avec `--no-verify`. Deux étages :
+
+| Étage | Contrôles |
+| --- | --- |
+| `pre-commit` (rapide) | gitleaks, hygiène de fichiers, `check-yaml`, Pint, `composer validate`, absence de `dd()` / `dump()`, oxlint, Prettier |
+| `pre-push` (lent) | `php artisan test`, ESLint, vue-tsc |
+
+`default_install_hook_types` déclare les deux types : un simple
+`pre-commit install` suffit, les gates de push ne peuvent pas être oubliées.
+
+### GitHub Actions — [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+
+Le filet non contournable. Six jobs, tous bloquants, sur push de branche comme
+sur PR vers `main` : qualité backend, tests backend (SQLite **et** PostgreSQL),
+qualité frontend, tests frontend, gitleaks sur l'historique complet, et
+l'agrégateur `CI OK` — seul check à déclarer requis sur `main`.
+
+Deux propriétés à connaître avant d'y toucher :
+
+- Le périmètre des hooks et celui de la CI **diffèrent** : Pint tourne en
+  `--dirty` en local (fichiers sales uniquement) et en `--test` en CI (tout le
+  backend). Un fichier arrivé par `vendor:publish` peut donc passer les hooks et
+  échouer en CI.
+- Les actions sont épinglées par SHA de commit, pas par tag ; l'image gitleaks
+  par digest, identique à celui du hook. Voir l'en-tête du workflow pour la
+  procédure de rafraîchissement.
+
 ## Structure du dépôt
 
-```
+```text
 .
-├── backend/            API REST Laravel
-│   ├── app/            Modèles, contrôleurs, providers
-│   ├── config/         Configuration du framework
-│   ├── database/       Migrations, factories, seeders
-│   ├── resources/      Vues Blade, CSS, JS du squelette
-│   ├── routes/         Déclaration des routes
-│   ├── storage/        Logs, cache, fichiers déposés (non versionnés)
-│   └── tests/          Tests unitaires et fonctionnels
-├── frontend/           SPA Vue 3 + TypeScript
-│   ├── cypress/        Tests end-to-end
+├── backend/                    API REST Laravel
+│   ├── app/                    Modèles, contrôleurs, form requests, providers
+│   ├── config/                 Configuration du framework (dont jwt.php)
+│   ├── database/               Migrations, factories, seeders
+│   ├── resources/              Vues Blade, CSS, JS du squelette
+│   ├── routes/                 Déclaration des routes (api.php, web.php)
+│   ├── storage/                Logs, cache, fichiers déposés (non versionnés)
+│   └── tests/                  Tests unitaires et fonctionnels
+├── frontend/                   SPA Vue 3 + TypeScript
+│   ├── cypress/                Tests end-to-end
 │   └── src/
-│       ├── components/ Composants réutilisables
-│       ├── router/     Routes côté client
-│       ├── stores/     Stores Pinia
-│       └── views/      Écrans
-├── docs/               Documentation de conception (fait autorité)
-└── compose.yaml        Services de développement (PostgreSQL)
+│       ├── components/         Composants réutilisables
+│       ├── router/             Routes côté client
+│       ├── stores/             Stores Pinia
+│       └── views/              Écrans
+├── docs/                       Documentation de conception (fait autorité)
+├── .github/workflows/ci.yml    Pipeline d'intégration continue
+├── .pre-commit-config.yaml     Hooks de qualité locaux (pre-commit, pre-push)
+└── compose.yaml                Services de développement (PostgreSQL)
 ```
 
 ## Base de données
@@ -273,20 +353,29 @@ npm run format             # Prettier sur src/
   `docker compose down -v && docker compose up -d`, puis `php artisan migrate`.
 - **Tests** : SQLite en mémoire, recréée à chaque exécution.
 
-Le schéma cible est décrit dans [docs/mcd.md](docs/mcd.md) ; les migrations
-actuelles sont encore celles du squelette Laravel.
+Le schéma cible est décrit dans [docs/mcd.md](docs/mcd.md). Trois migrations sont
+en place, toutes issues du squelette Laravel à l'exception de `users`, dont la
+colonne `name` a été retirée pour l'inscription (US03). Restent à aligner sur le
+MCD : `email_verified_at` et `remember_token`, absents du modèle métier ; et la
+table `files`, non encore créée.
 
 ## Points ouverts
 
-- [ ] Écrire les migrations du modèle métier : table `files`, et alignement de
-      `users` sur [docs/mcd.md](docs/mcd.md) (le squelette livre `name`,
-      `email_verified_at` et `remember_token`, absents du modèle)
-- [ ] Implémenter les 7 opérations du contrat d'API et le scheduler de purge
-- [ ] Choisir et installer un paquet JWT côté backend (décision d'architecture
-      prise, aucune dépendance ajoutée)
-- [ ] Construire les écrans de la SPA d'après les maquettes
-- [ ] Aligner `backend/.env.example` sur PostgreSQL
-- [ ] Mettre en place une intégration continue (tests backend et frontend, Pint, lint)
+- [x] Choisir et installer un paquet JWT côté backend →
+      `php-open-source-saver/jwt-auth`
+- [x] Aligner `backend/.env.example` sur PostgreSQL
+- [x] Mettre en place une intégration continue (tests, Pint, lint, gitleaks)
+- [ ] Écrire les migrations du modèle métier : table `files`, et fin d'alignement
+      de `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
+      `remember_token` restent livrés par le squelette, absents du modèle)
+- [ ] Implémenter les 6 opérations restantes du contrat d'API et le scheduler de
+      purge (`POST /api/auth/register` est faite)
+- [ ] Construire les écrans de la SPA d'après les maquettes ; le scaffold Vue
+      (`HelloWorld`, `TheWelcome`, `AboutView`, store `counter`) est encore en place
+- [ ] Remplacer `backend/README.md` et `frontend/README.md`, restés les fichiers
+      par défaut de Laravel et du template Vue
+- [ ] Mettre à jour [docs/architecture.md](docs/architecture.md), qui indique
+      encore qu'aucun paquet JWT n'est installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
       sans laquelle aucune purge n'a lieu
 - [ ] Choisir et déclarer une licence
