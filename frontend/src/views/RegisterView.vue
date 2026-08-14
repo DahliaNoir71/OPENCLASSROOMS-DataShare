@@ -145,7 +145,7 @@ async function onSubmit(): Promise<void> {
             </p>
           </div>
 
-          <a class="register-login-link" href="/login">J'ai déjà un compte</a>
+          <router-link class="register-login-link" to="/login">J'ai déjà un compte</router-link>
 
           <p v-if="globalError" class="form-error-global" role="alert">{{ globalError }}</p>
 
