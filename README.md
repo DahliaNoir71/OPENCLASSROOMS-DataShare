@@ -14,22 +14,9 @@ techniques ; le présent README ne traite que de la mise en route.
 
 | Document | Contenu |
 | --- | --- |
-| [docs/architecture.md](docs/architecture.md) | Composants, flux, décisions techniques et limites du scheduler |
+| [docs/architecture.md](docs/architecture.md) | Composants, flux aller et retour, cache, journalisation, décisions techniques et limites du scheduler |
 | [docs/mcd.md](docs/mcd.md) | MCD (Merise) et MLD, contraintes, index, décisions de modélisation |
 | [docs/openapi.yaml](docs/openapi.yaml) | Contrat d'API (OpenAPI 3.1) — 7 opérations |
-
-Le contrat d'API se valide avec, **depuis la racine du dépôt** :
-
-```bash
-npx @redocly/cli lint docs/openapi.yaml
-```
-
-Un avertissement subsiste et est **attendu** : `no-server-example.com`, car la
-seule entrée `servers` pointe sur `http://localhost:8000/api`. Il n'y a pas
-encore de déploiement, et déclarer une URL de production inexistante
-introduirait une information fausse dans le contrat. À rouvrir au premier
-déploiement réel. Redocly sort malgré tout en succès : l'avertissement
-n'invalide pas la description.
 
 ## État du projet
 
@@ -194,7 +181,9 @@ Toutes les routes `/api` sont plafonnées à 60 requêtes par minute (par
 utilisateur authentifié, sinon par IP), et les routes `/api/auth/*` à 5 par
 minute et par IP — elles sont ouvertes à tous. Un dépassement renvoie `429`
 avec un en-tête `Retry-After`. Les deux limiteurs sont définis dans
-[`AppServiceProvider`](backend/app/Providers/AppServiceProvider.php).
+[`AppServiceProvider`](backend/app/Providers/AppServiceProvider.php) ; leurs
+compteurs sont tenus dans le store de cache (`CACHE_STORE=database`, soit la
+table `cache`), seul usage du cache à ce stade.
 
 Pour lancer les services séparément :
 
@@ -273,9 +262,7 @@ Cypress doit avoir été installé (cf. installation du frontend).
 
 ## Qualité de code
 
-Aucun de ces contrôles n'est automatisé : ni hook Git, ni pipeline
-d'intégration continue. Ils se lancent à la main, à l'appréciation de qui
-développe.
+Ces commandes se lancent à la main, à l'appréciation de qui développe.
 
 ### Backend
 
@@ -295,19 +282,10 @@ npm run format             # Prettier sur src/
 
 ### Markdown
 
-Depuis la racine du dépôt :
-
-```bash
-npx markdownlint-cli2 README.md      # ce fichier
-npx markdownlint-cli2 '**/*.md'      # tout le dépôt
-```
-
-Les conventions sont dans
-[`.markdownlint-cli2.jsonc`](.markdownlint-cli2.jsonc).
-
-Attention au répertoire : lancé depuis `backend/` ou `frontend/`, `README.md`
-désigne le fichier de scaffold de ce sous-projet et non celui-ci — or ces deux
-scaffolds ne sont pas conformes (cf. points ouverts).
+Les conventions restent décrites dans
+[`.markdownlint-cli2.jsonc`](.markdownlint-cli2.jsonc), lu directement par
+l'extension markdownlint de l'éditeur : les écarts se voient en écrivant, sans
+passage en ligne de commande.
 
 ## Structure du dépôt
 
@@ -379,14 +357,20 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [ ] Construire les écrans de la SPA d'après les maquettes ; le scaffold Vue
       (`HelloWorld`, `TheWelcome`, `AboutView`, store `counter`) est encore en place
 - [ ] Remplacer `backend/README.md` et `frontend/README.md`, restés les fichiers
-      par défaut de Laravel et du template Vue (28 issues markdownlint à eux
-      deux)
-- [ ] Mettre à jour [docs/architecture.md](docs/architecture.md), qui indique
-      encore qu'aucun paquet JWT n'est installé
+      par défaut de Laravel et du template Vue
+- [x] Mettre à jour [docs/architecture.md](docs/architecture.md), qui indiquait
+      encore qu'aucun paquet JWT n'était installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
       sans laquelle aucune purge n'a lieu
+- [ ] Journaliser explicitement ce qui n'a pas d'autre canal de remontée : rapport
+      de purge du scheduler, échecs d'authentification, `429` (cf.
+      [docs/architecture.md](docs/architecture.md#journalisation-et-supervision))
+- [ ] Poser `Cache-Control: private, no-store` sur la réponse de téléchargement,
+      à l'implémentation de `POST /links/{token}/download`
+- [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=warning`, canal `daily` ou
+      `stderr`, et `CACHE_STORE=redis` si la charge le justifie
 - [ ] Déclarer une URL de production dans `servers` du contrat d'API, au premier
-      déploiement (lève l'avertissement `no-server-example.com`)
+      déploiement — l'unique entrée pointe aujourd'hui sur `localhost`
 
 ## Licence
 

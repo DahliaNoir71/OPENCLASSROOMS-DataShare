@@ -5,7 +5,8 @@ info:
   description: >
     Contrat d'interface du prototype DataShare — transfert sécurisé de
     fichiers via liens temporaires. Toutes les réponses sont en JSON sauf le
-    téléchargement (binaire).
+    téléchargement (binaire). Aucune réponse n'est cachable : elles dépendent
+    toutes soit de l'instant (expiration du lien), soit du porteur du jeton.
   license:
     name: MIT
     identifier: MIT
@@ -45,6 +46,8 @@ paths:
       responses:
         "201":
           description: Compte créé, jeton émis
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AuthResponse" }
@@ -70,6 +73,8 @@ paths:
       responses:
         "200":
           description: Authentification réussie
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AuthResponse" }
@@ -91,6 +96,8 @@ paths:
       responses:
         "200":
           description: Liste des fichiers
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
               schema:
@@ -171,6 +178,8 @@ paths:
       responses:
         "200":
           description: Métadonnées visibles avant téléchargement
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LinkMetadata" }
@@ -204,6 +213,9 @@ paths:
       responses:
         "200":
           description: Contenu binaire du fichier
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
+            Content-Disposition: { $ref: "#/components/headers/ContentDisposition" }
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
@@ -218,6 +230,30 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+
+  headers:
+    RetryAfter:
+      description: Nombre de secondes à attendre avant un nouvel appel.
+      required: true
+      schema: { type: integer, example: 60 }
+
+    NoStore:
+      description: >
+        Toujours `private, no-store`. Une réponse conservée par un
+        intermédiaire — proxy, CDN, cache du navigateur — servirait un
+        contenu sans repasser par le contrôle d'expiration, le mot de passe
+        de partage (US09) ou l'identité du porteur du jeton. Cf.
+        `docs/architecture.md`, section « Cache ».
+      required: true
+      schema: { type: string, const: "private, no-store" }
+
+    ContentDisposition:
+      description: >
+        `attachment; filename="<nom d'origine>"`. C'est par cet en-tête, et
+        non par le corps, que le nom de fichier d'origine remonte au
+        destinataire : le nom physique sur disque est un UUID.
+      required: true
+      schema: { type: string }
 
   schemas:
     AuthResponse:
@@ -268,8 +304,10 @@ components:
               message: { type: string }
     TooManyRequests:
       description: >
-        Plafond de requêtes dépassé. L'en-tête `Retry-After` indique le nombre
-        de secondes à attendre.
+        Plafond de requêtes dépassé. Les compteurs sont tenus par le limiteur
+        de débit dans le store de cache de l'application.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
       content:
         application/json:
           schema:
