@@ -18,7 +18,7 @@ techniques ; le présent README ne traite que de la mise en route.
 | [docs/mcd.md](docs/mcd.md) | MCD (Merise) et MLD, contraintes, index, décisions de modélisation |
 | [docs/openapi.yaml](docs/openapi.yaml) | Contrat d'API (OpenAPI 3.1) — 7 opérations |
 
-Le contrat d'API se valide avec :
+Le contrat d'API se valide avec, **depuis la racine du dépôt** :
 
 ```bash
 npx @redocly/cli lint docs/openapi.yaml
@@ -285,6 +285,22 @@ cd frontend
 npm run lint               # oxlint puis ESLint, avec correction automatique
 npm run format             # Prettier sur src/
 ```
+
+### Markdown
+
+Depuis la racine du dépôt :
+
+```bash
+npx markdownlint-cli2 README.md      # ce fichier
+npx markdownlint-cli2 '**/*.md'      # tout le dépôt
+```
+
+Les conventions sont dans
+[`.markdownlint-cli2.jsonc`](.markdownlint-cli2.jsonc).
+
+Attention au répertoire : lancé depuis `backend/` ou `frontend/`, `README.md`
+désigne le fichier de scaffold de ce sous-projet et non celui-ci — or ces deux
+scaffolds ne sont pas conformes (cf. points ouverts).
 
 ## Intégration continue
 
