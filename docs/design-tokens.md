@@ -138,7 +138,8 @@ maquette.
 | `--ds-space-sm` | 12px | Padding bouton medium, padding horizontal d'un input |
 | `--ds-space-md` | 16px | Écart entre champs de formulaire, padding header, padding ligne fichier |
 | `--ds-space-lg` | 24px | Padding de carte, écart titre → champs |
-| `--ds-size-control-height` | 40px | Hauteur des inputs / select |
+| `--ds-size-control-height` | 40px | Hauteur des inputs / select (hauteur visée, tenue par `min-height` — voir § Dérivations hors maquette) |
+| `--ds-size-icon` | 16px | Icônes 16 × 16 (chevron du select « Expiration », component set `Chevron down` `#3:100`, variant `Size=16`) |
 
 ## Breakpoint
 
@@ -243,3 +244,27 @@ Dérivations validées (arbitrage du 2026-08-14) :
   approximation.
 - **Breakpoint 768px** : voir section dédiée ci-dessus — valeur de projet, pas
   une mesure Figma.
+- **Boîte du select « Expiration » (nœud `#9:194`, cadre `Select`
+  `#565:15192`)** : la maquette empile une hauteur fixe de 40px, un padding
+  vertical de 12px et un trait de 1px. Le trait Figma ne consomme pas de
+  hauteur de cadre, la bordure CSS si : transposé tel quel en
+  `box-sizing: border-box`, il ne restait que `40 - 2 × 12 - 2 × 1 = 14px` de
+  boîte de contenu pour la line-height de 16px du style `Input`, et le libellé
+  de l'option (« Une semaine ») était rogné. La maquette n'a donc pas prévu la
+  place de son propre libellé. **Retenu** : hauteur de 40px conservée comme
+  hauteur *visée* (`min-height: var(--ds-size-control-height)`), padding
+  vertical à `0` et centrage vertical laissé au select — ce que fait déjà le
+  cadre Figma via `align-items: center`, le padding vertical n'y positionnant
+  rien. Rendu identique à la maquette (boîte de 40px, libellé centré), sans
+  rognage possible si la police de repli ou le zoom navigateur élargissent la
+  ligne.
+- **Chevron du select** : la maquette dessine une icône `Chevron down` de
+  16 × 16 (component set `#3:100`, variant `Size=16`, instance `#565:15194` :
+  tracé `M4 6L8 10L12 6`, `stroke-width` 1.6, `#1E1E1E`) posée à 12px du bord
+  droit avec 8px de gouttière — elle ne prévoit aucune flèche native de
+  navigateur. **Retenu** : `appearance: none` sur le select et chevron en SVG
+  inline (`currentColor`, comme l'icône du bouton upload de l'accueil), afin
+  que la réserve horizontale du libellé soit déterminée par la maquette
+  (12 + 8 + 16 = 36px de `padding-right`) et non par la largeur — variable
+  selon le navigateur — de la flèche native. Nouveau token `--ds-size-icon`
+  (16px) pour la taille de l'icône.
