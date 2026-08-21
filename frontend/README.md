@@ -1,70 +1,43 @@
-# frontend
+# DataShare — frontend
 
-This template should help get you started developing with Vue 3 in Vite.
+SPA Vue 3 + TypeScript de DataShare. C'est la seule interface utilisateur du
+projet : l'API Laravel de [`../backend/`](../backend/) ne sert aucune vue.
 
-## Recommended IDE Setup
+La mise en route, les commandes de développement, de test et de qualité sont
+décrites une seule fois, dans le [README de la racine](../README.md). Ce fichier
+ne répète rien.
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## Repères
 
-## Recommended Browser Setup
+| Sujet | Où |
+| --- | --- |
+| Routes côté client | [`src/router/index.ts`](src/router/index.ts) |
+| Jetons de design | [`../docs/design-tokens.md`](../docs/design-tokens.md) et [`src/assets/styles/tokens.css`](src/assets/styles/tokens.css) |
+| Contrat d'API consommé | [`../docs/openapi.yaml`](../docs/openapi.yaml) |
+| Architecture d'ensemble | [`../docs/architecture.md`](../docs/architecture.md) |
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+## Particularités
 
-## Type Support for `.vue` Imports in TS
+- **L'API n'est jamais appelée sur le port 8000 en dur.** Le proxy déclaré dans
+  [`vite.config.ts`](vite.config.ts) relaie `/api` vers
+  `http://localhost:8000` : le code ne manipule que des chemins relatifs, ce qui
+  évite le CORS en développement. En contrepartie, `php artisan serve` doit
+  tourner, sinon le proxy renvoie une erreur de connexion.
+- **`npm install` télécharge le binaire Cypress** (une centaine de mégaoctets)
+  via le script `prepare`. `npm install --ignore-scripts` s'en passe, au prix
+  des tests end-to-end jusqu'à un `npx cypress install` explicite.
+- **`npm run test:unit` reste en watch** : pour un code de sortie exploitable,
+  utiliser `npx vitest run`.
+- **Les polices sont auto-hébergées** dans `src/assets/fonts/` : aucune requête
+  vers un tiers, cf. [`../docs/design-tokens.md`](../docs/design-tokens.md).
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+## Configuration de l'éditeur
 
-## Customize configuration
+[VS Code](https://code.visualstudio.com/) avec l'extension
+[Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar),
+Vetur désactivé. TypeScript ne sait pas typer les imports `.vue` seul : c'est
+`vue-tsc` qui remplace `tsc`, via `npm run type-check`.
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+## Licence
 
-## Project Setup
-
-```sh
-npm install
-```
-
-### Compile and Hot-Reload for Development
-
-```sh
-npm run dev
-```
-
-### Type-Check, Compile and Minify for Production
-
-```sh
-npm run build
-```
-
-### Run Unit Tests with [Vitest](https://vitest.dev/)
-
-```sh
-npm run test:unit
-```
-
-### Run End-to-End Tests with [Cypress](https://www.cypress.io/)
-
-```sh
-npm run test:e2e:dev
-```
-
-This runs the end-to-end tests against the Vite development server.
-It is much faster than the production build.
-
-But it's still recommended to test the production build with `test:e2e` before deploying (e.g. in CI environments):
-
-```sh
-npm run build
-npm run test:e2e
-```
-
-### Lint with [ESLint](https://eslint.org/)
-
-```sh
-npm run lint
-```
+[MIT](../LICENSE).
