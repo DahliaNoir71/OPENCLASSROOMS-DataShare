@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Files\FileController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/ping', fn () => response()->json(['status' => 'ok']));
@@ -18,4 +19,11 @@ Route::prefix('auth')->middleware('throttle:auth')->group(function () {
 Route::prefix('auth')->middleware('auth:api')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
+});
+
+// Derrière un jeton comme /auth/me et /auth/logout, mais avec son propre
+// plafond : chaque appel peut transporter jusqu'à 1 Go, un ceiling qui n'a
+// rien à voir avec celui d'un simple appel JSON (US01).
+Route::prefix('files')->middleware(['auth:api', 'throttle:uploads'])->group(function () {
+    Route::post('/', [FileController::class, 'store']);
 });

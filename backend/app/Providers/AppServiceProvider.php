@@ -28,9 +28,11 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * Two limiters: a general ceiling for the whole API, and a strict one for
+     * Three limiters: a general ceiling for the whole API, a strict one for
      * the auth routes, which are open to everyone and therefore exposed to
-     * account enumeration and credential stuffing.
+     * account enumeration and credential stuffing, and one for uploads, whose
+     * ceiling has nothing to do with a plain JSON call — each request can
+     * carry up to 1 GiB.
      */
     private function configureRateLimiting(): void
     {
@@ -44,6 +46,12 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)
                 ->by($request->ip())
                 ->response($this->rejectAndLog('auth'));
+        });
+
+        RateLimiter::for('uploads', function (Request $request) {
+            return Limit::perMinute(10)
+                ->by($request->user()?->id ?: $request->ip())
+                ->response($this->rejectAndLog('uploads'));
         });
     }
 
