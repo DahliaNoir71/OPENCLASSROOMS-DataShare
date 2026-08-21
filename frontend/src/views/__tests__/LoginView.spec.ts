@@ -46,6 +46,7 @@ beforeEach(() => {
       { path: '/', component: { template: '<div />' } },
       { path: '/login', component: LoginView },
       { path: '/register', component: { template: '<div />' } },
+      { path: '/mon-espace', component: { template: '<div />' } },
     ],
   })
 })
@@ -117,6 +118,37 @@ describe('LoginView', () => {
     expect(loginSpy).toHaveBeenCalledWith('user@example.com', 'motdepasse123')
     expect(pushSpy).toHaveBeenCalledWith('/')
   })
+
+  it('redirige vers la page mémorisée dans ?redirect= quand elle est interne', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, { token: 'jwt-test', user: { id: 1, email: 'user@example.com' } }),
+    )
+    await router.push('/login?redirect=/mon-espace')
+    const pushSpy = vi.spyOn(router, 'push')
+    const wrapper = mountView()
+
+    await fillAndSubmit(wrapper)
+
+    expect(pushSpy).toHaveBeenCalledWith('/mon-espace')
+  })
+
+  // Un ?redirect= absolu transformerait la page de connexion en tremplin vers un
+  // site tiers, jeton fraîchement obtenu en poche : il doit retomber sur "/".
+  it.each(['//evil.example', 'https://evil.example/phishing', 'javascript:alert(1)'])(
+    'ignore une destination externe (%s) et revient sur "/"',
+    async (redirect) => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { token: 'jwt-test', user: { id: 1, email: 'user@example.com' } }),
+      )
+      await router.push({ path: '/login', query: { redirect } })
+      const pushSpy = vi.spyOn(router, 'push')
+      const wrapper = mountView()
+
+      await fillAndSubmit(wrapper)
+
+      expect(pushSpy).toHaveBeenCalledWith('/')
+    },
+  )
 
   it('affiche le message global de l\'API et ne stocke aucun token sur un 401', async () => {
     fetchMock.mockResolvedValue(jsonResponse(401, { message: 'Identifiants invalides.' }))
