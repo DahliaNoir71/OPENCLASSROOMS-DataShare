@@ -157,12 +157,23 @@ Le store est configuré sur `database` (`CACHE_STORE`), soit les tables `cache`
 et `cache_locks` du même PostgreSQL. Il a deux consommateurs.
 
 Le **limiteur de débit** : 60 appels par minute sur `/api`, 5 sur
-`/api/auth/register` et `/api/auth/login`. Les compteurs y vivent le temps
-d'une fenêtre ; c'est de là que sortent le `429` et son `Retry-After`. Les
-routes `/api/auth/me` et `/api/auth/logout` relèvent du plafond général, et non
-du plafond strict : elles exigent un jeton, donc ne sont pas exposées au
-bourrage d'identifiants, et 5 appels par minute et par IP y pénaliseraient une
-session normale — a fortiori plusieurs utilisateurs partageant une sortie NAT.
+`/api/auth/register` et `/api/auth/login`, 10 sur `POST /api/files`. Les
+compteurs y vivent le temps d'une fenêtre ; c'est de là que sortent le `429` et
+son `Retry-After`. Les routes `/api/auth/me` et `/api/auth/logout` relèvent du
+plafond général, et non du plafond strict : elles exigent un jeton, donc ne sont
+pas exposées au bourrage d'identifiants, et 5 appels par minute et par IP y
+pénaliseraient une session normale — a fortiori plusieurs utilisateurs
+partageant une sortie NAT.
+
+`POST /api/links/{token}/download` est le seul à porter **deux plafonds
+simultanés**, parce que deux attaques distinctes visent la même route : 10 par
+minute et par lien, ce qui rend vaine la recherche du mot de passe d'un partage
+connu, et 30 par minute et par adresse IP, ce qui borne le balayage de l'espace
+des jetons sans gêner un bureau derrière une même sortie NAT. Les deux doivent
+passer, et aucun des deux ne stocke le jeton : la clé du premier est un
+condensat. Le `GET` des métadonnées, lui, s'en tient au plafond général — pour
+un appelant anonyme celui-ci compte déjà par adresse IP, et 22 caractères
+base62 rendent l'énumération vaine de toute façon.
 
 La **liste noire des jetons** (US04) : `POST /api/auth/logout` y inscrit le
 jeton présenté, et chaque requête authentifiée vérifie qu'il n'y figure pas.
@@ -211,6 +222,37 @@ Le vrai levier de performance du projet n'est donc pas le cache mais le
 **streaming** : un fichier de 1 Go est lu et écrit en flux, jamais chargé en
 mémoire PHP. Les index de la base (cf. [mcd.md](mcd.md)) font le reste, la
 recherche par token étant le seul accès à fort volume.
+
+Concrètement, le téléchargement passe par `Storage::disk()->download()`, dont la
+réponse est un flux : son callback enchaîne `readStream` et `fpassthru`, et
+`memory_limit` n'entre donc jamais en jeu. `Content-Type` et `Content-Length`
+lui sont passés explicitement, depuis la base plutôt que depuis le disque —
+d'abord parce que le fichier physique est un UUID sans extension, dont la
+détection par contenu annoncerait autre chose que ce que le déposant a envoyé ;
+ensuite parce que ce sont, sur un driver distant, deux requêtes de métadonnées
+épargnées par téléchargement.
+
+Trois limites à connaître, aucune n'étant un oubli :
+
+- **Pas de requêtes partielles.** Aucun `Accept-Ranges` n'est émis et aucun
+  `206` n'est servi : une coupure impose de reprendre à zéro, ce qui sur 1 Go
+  n'est pas anodin. Les gérer supposerait un `BinaryFileResponse`, qui exige un
+  chemin absolu local — donc de sortir de la façade `Storage`, et de revenir sur
+  la décision « driver interchangeable » actée plus bas.
+- **Le corps se lit en `fetch` puis `Blob` côté SPA**, le téléchargement étant
+  un `POST` (le mot de passe de partage n'a rien à faire dans une URL). Le
+  fichier transite donc par la mémoire du navigateur, là où une navigation
+  directe le laisserait écrire au fil de l'eau. Limite assumée pour le
+  prototype ; le remède, si la mesure le justifie, n'est pas d'ouvrir un `GET`
+  permanent mais d'émettre depuis le `POST` un ticket signé à usage unique et
+  courte durée.
+- **Les couperets de temps sont en dehors de PHP.** Sous le SAPI CLI de
+  `php artisan serve`, `max_execution_time` vaut `0` ; en déploiement php-fpm il
+  vaut 30 par défaut, mais PHP ne compte pas le temps passé dans les
+  entrées-sorties de flux. Ce qui coupe réellement un gros téléchargement lent,
+  c'est `request_terminate_timeout` du pool php-fpm et le
+  `fastcgi_read_timeout` (ou `proxy_read_timeout`) du serveur frontal : à
+  relever tous les deux au même titre que `post_max_size`.
 
 ### Limites assumées et voie de production
 
@@ -272,20 +314,42 @@ irréversible exigé par US06 ne laisse, par construction, aucune autre preuve.
 | `User logged out` | `200` sur `/auth/logout` | `user_id` |
 | `File uploaded` | `201` sur `/files` | `user_id`, `file_id`, `size`, `protected` |
 | `Link consumed` | `200` sur le téléchargement | `file_id` — l'appelant est anonyme |
+| `Link password failed` | `401` sur le téléchargement | `file_id`, `ip` — niveau `warning` |
+| `Link content missing` | `410` sur le téléchargement, octets absents du disque | `file_id` — niveau `error` |
 | `File deleted` | `204` sur `/files/{id}` | `user_id`, `file_id` |
 | `Expired files purged` | passage du scheduler | nombre supprimé, nombre en échec |
 
-Les cinq premières lignes sont implémentées : les quatre routes
-d'authentification, et `File uploaded` avec le dépôt de fichier (US01). Les
-trois dernières arrivent avec leur route.
+Les huit premières lignes sont implémentées : les quatre routes
+d'authentification, `File uploaded` avec le dépôt de fichier (US01), et les
+trois dernières du parcours de téléchargement (US02). Restent `File deleted` et
+`Expired files purged`, qui arriveront avec leur route et avec le scheduler.
 
-`Login failed` est la seule de la famille à sortir du niveau `info` : un échec
-d'authentification pris isolément est une réponse normale, mais sa
-concentration signale un bourrage d'identifiants — c'est un incident, pas un
-événement métier. Son contexte se réduit à l'adresse IP : ni l'email tenté, ni
+Trois de ces lignes sortent du niveau `info`, et pour des raisons différentes
+qu'il vaut la peine de distinguer.
+
+`Login failed` et `Link password failed` sont en `warning` : un échec de
+vérification pris isolément est une réponse normale, mais sa concentration
+signale un bourrage d'identifiants ou une recherche de mot de passe de partage
+— c'est un incident, pas un événement métier. Le `429` du limiteur laisse déjà
+une trace, mais il ne dit pas *quel* fichier était visé ; cette ligne le dit.
+Le contexte de `Login failed` se réduit à l'adresse IP : ni l'email tenté, ni
 l'indication de ce qui a échoué du couple. La réponse refuse de dire si le
 compte existe (cf. plus bas), le journal ne doit pas le dire non plus, sans
 quoi l'oracle d'énumération est simplement déplacé du client vers l'exploitant.
+`Link password failed` n'a pas cette réserve à observer — `protected` est déjà
+public — et journalise donc l'identifiant du fichier avec l'IP.
+
+`Link content missing` est en `error`, un cran au-dessus : une ligne vivante
+dont les octets ont disparu du disque ne se répare pas d'elle-même. Les deux
+causes plausibles sont une purge interrompue entre ses deux suppressions et une
+intervention manuelle sur le stockage ; l'une et l'autre demandent un examen.
+Le destinataire, lui, reçoit un `410` — même code et même corps qu'une
+expiration, l'information étant exacte de son point de vue.
+
+Un état, en revanche, ne laisse **délibérément aucune trace** : le `404` d'un
+jeton inconnu. Un balayage de l'espace des jetons produirait une ligne par
+tentative et noierait le journal, alors que le `429` du limiteur couvre déjà ce
+signal, avec l'adresse d'où il vient.
 
 Trois règles tiennent la convention :
 
@@ -383,6 +447,24 @@ répond que si le routage `/api` fonctionne.
   contournerait la vérification d'expiration et le mot de passe de partage
   (US09) ; en passant systématiquement par l'application, un lien reste
   inopérant dès `expires_at` dépassé, avant même toute suppression.
+- **Téléchargement en `POST`, uniforme, et non en `GET`** (US02) : la requête
+  porte un secret — le mot de passe de partage —, et une URL part dans les
+  journaux d'accès, l'historique du navigateur et le `Referer`. Un `GET` est
+  aussi exactement ce qu'un proxy ou un CDN est autorisé à stocker par défaut,
+  quand toute la section « Cache » existe pour l'empêcher. La méthode reste la
+  même pour un fichier non protégé : deux méthodes obligeraient à définir quatre
+  combinaisons pour une seule opération métier. Le prix en est la lecture par
+  `Blob` côté client, décrite plus haut.
+- **`404` distinct du `410`** (US02) : un `404` uniforme ne protégerait
+  personne, puisqu'il faut déjà détenir le jeton — donc le secret du partage —
+  pour obtenir le `410`. Il dégraderait seulement l'expérience du destinataire
+  légitime, qui est précisément le cas nominal du `410`, en l'envoyant chercher
+  une faute de copie inexistante. La contrepartie est que la fenêtre du `410`
+  est bornée par la purge : une fois la ligne supprimée, le lien répond `404`,
+  donc l'écran « expiré » n'est garanti que dans les 24 h suivant l'échéance.
+  Une ligne-pierre tombale le prolongerait, au prix d'une entorse au « pas de
+  soft delete » de [mcd.md](mcd.md) et d'une question de rétention à part
+  entière : écartée pour le prototype.
 - **Façade `Storage` plutôt qu'un accès direct au système de fichiers** :
   le driver `local` suffit au prototype, et le passage à S3 se fait par
   configuration, sans toucher au code métier. Le même contrat couvre l'écriture,
@@ -427,15 +509,16 @@ la rotation des journaux, le niveau de log de production et le choix du store de
 cache, tous pilotés par variables d'environnement.
 
 Ce document décrit l'architecture cible, celle du contrat d'API. À ce stade,
-cinq opérations sont implémentées : les quatre d'authentification —
+sept opérations sont implémentées : les quatre d'authentification —
 `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`,
-`POST /api/auth/logout` — et le dépôt de fichier, `POST /api/files` (US01). Le
-parcours de téléchargement schématisé plus haut, lui, reste une conception,
-pas un état des lieux.
+`POST /api/auth/logout` —, le dépôt de fichier `POST /api/files` (US01), et les
+deux du parcours de téléchargement, `GET /api/links/{token}` et
+`POST /api/links/{token}/download` (US02). Le diagramme de séquence plus haut
+est donc devenu un état des lieux.
 
 Sont en revanche en place et opérants, parce qu'ils ne dépendent d'aucune route
-en particulier : les trois limiteurs de débit, le middleware `NoStore` sur tout
+en particulier : les quatre limiteurs de débit, le middleware `NoStore` sur tout
 le groupe `api`, la journalisation des dépassements de quota et le contexte
-d'exception. Ce qui reste attaché à une opération non écrite — flux binaire,
-`Content-Disposition`, contrôle d'expiration, rapport de purge — arrivera avec
-elle.
+d'exception. Ce qui reste attaché à une opération non écrite — l'historique
+(US05), la suppression manuelle (US06) et le rapport de purge (US10) —
+arrivera avec elle.
