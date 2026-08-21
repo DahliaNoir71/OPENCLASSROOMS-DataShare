@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import AppHeader from '@/components/AppHeader.vue'
 import { AuthMessageError, RegisterValidationError, useAuthStore } from '@/stores/auth'
@@ -8,6 +8,7 @@ import { AuthMessageError, RegisterValidationError, useAuthStore } from '@/store
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
 const email = ref('')
@@ -19,6 +20,21 @@ const fieldErrors = reactive({
   email: [] as string[],
   password: [] as string[],
 })
+
+/**
+ * Destination après connexion. Seul un chemin interne est accepté : « //evil.com »
+ * comme « https://evil.com » sont des URL absolues qu'un tiers pourrait glisser
+ * dans le lien de connexion pour détourner l'utilisateur après authentification.
+ */
+function redirectTarget(): string {
+  const target = route.query.redirect
+
+  if (typeof target === 'string' && target.startsWith('/') && !target.startsWith('//')) {
+    return target
+  }
+
+  return '/'
+}
 
 function validate(): boolean {
   fieldErrors.email = []
@@ -48,7 +64,7 @@ async function onSubmit(): Promise<void> {
   loading.value = true
   try {
     await authStore.login(email.value, password.value)
-    await router.push('/')
+    await router.push(redirectTarget())
   } catch (error) {
     if (error instanceof RegisterValidationError) {
       fieldErrors.email = error.errors.email ?? []
