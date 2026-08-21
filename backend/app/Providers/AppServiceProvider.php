@@ -28,11 +28,12 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * Three limiters: a general ceiling for the whole API, a strict one for
-     * the auth routes, which are open to everyone and therefore exposed to
-     * account enumeration and credential stuffing, and one for uploads, whose
-     * ceiling has nothing to do with a plain JSON call — each request can
-     * carry up to 1 GiB.
+     * Four limiters: a general ceiling for the whole API, a strict one for the
+     * auth routes, which are open to everyone and therefore exposed to account
+     * enumeration and credential stuffing, one for uploads, whose ceiling has
+     * nothing to do with a plain JSON call — each request can carry up to
+     * 1 GiB — and one for public downloads, the only route where two distinct
+     * attacks aim at the same endpoint, hence its two simultaneous limits.
      */
     private function configureRateLimiting(): void
     {
@@ -52,6 +53,38 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(10)
                 ->by($request->user()?->id ?: $request->ip())
                 ->response($this->rejectAndLog('uploads'));
+        });
+
+        // Two simultaneous limits rather than one: a public download is the
+        // only route two distinct attacks aim at. The first bounds guessing the
+        // share password of a known link, the second bounds sweeping the token
+        // space from one source. Both have to pass — ThrottleRequests checks
+        // every limit before incrementing any.
+        //
+        // The response callback goes on each limit, not on the limiter: the 429
+        // is built from the limit that tripped, so a limit without it would
+        // answer Laravel's English default and leave no log line.
+        RateLimiter::for('downloads', function (Request $request) {
+            // Defence in depth, not a fix: ThrottleRequests already hashes the
+            // composed key before it reaches the cache store. But that is a
+            // static the framework lets anyone flip (withoutHashingKeys). A
+            // share token is a bearer secret; whether it stays out of the
+            // `cache` table must not depend on a framework default.
+            //
+            // sha256 rather than sha1: this is key derivation, not signing, so
+            // collision resistance is not what is at stake — but at equal cost
+            // there is no reason to reach for the weaker digest, and it spares
+            // the reader (and the linter) the question.
+            $token = hash('sha256', (string) $request->route('token'));
+
+            return [
+                Limit::perMinute(10)
+                    ->by('dl-token:'.$token)
+                    ->response($this->rejectAndLog('downloads')),
+                Limit::perMinute(30)
+                    ->by('dl-ip:'.$request->ip())
+                    ->response($this->rejectAndLog('downloads')),
+            ];
         });
     }
 

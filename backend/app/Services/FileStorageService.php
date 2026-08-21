@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\LinkContentMissingException;
 use App\Models\File;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
@@ -9,14 +10,18 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 /**
- * Écrit les octets déposés sur le disque dédié puis crée la ligne de
- * métadonnées qui les rend accessibles — dans cet ordre, jamais l'inverse :
- * c'est le miroir de la purge (US10), qui efface le contenu physique avant la
- * ligne en base. Un octet sans ligne coûte du disque ; une ligne sans octet
- * donnerait un 500 au destinataire d'un lien qui ne pointerait vers rien.
+ * Le disque dédié, dans les deux sens : l'écriture d'un dépôt et sa relecture
+ * en flux.
+ *
+ * À l'écriture, les octets partent avant la ligne de métadonnées — dans cet
+ * ordre, jamais l'inverse : c'est le miroir de la purge (US10), qui efface le
+ * contenu physique avant la ligne en base. Un octet sans ligne coûte du
+ * disque ; une ligne sans octet donnerait un lien qui ne pointe vers rien —
+ * état que la relecture, plus bas, doit précisément savoir reconnaître.
  */
 class FileStorageService
 {
@@ -53,6 +58,52 @@ class FileStorageService
 
             throw $e;
         }
+    }
+
+    /**
+     * Relit un dépôt en flux. `download()` construit une StreamedResponse dont
+     * le callback enchaîne readStream et fpassthru : les octets ne passent
+     * jamais par la mémoire de PHP, ce qui est la condition pour servir 1 Go.
+     * Tout reste derrière la façade Storage, donc le driver reste
+     * interchangeable (docs/architecture.md).
+     *
+     * Content-Type et Content-Length sont passés explicitement, ce qui fait
+     * sauter les `??=` de FilesystemAdapter et donc les deux relevés de
+     * métadonnées sur le disque. Trois raisons : le fichier physique est un
+     * UUID sans extension, dont la détection par contenu annoncerait autre
+     * chose que ce que le déposant a envoyé ; la base est la source de vérité,
+     * et c'est déjà elle qui alimente les métadonnées annoncées juste avant au
+     * même destinataire ; et sur un driver distant, ce sont deux requêtes de
+     * moins par téléchargement.
+     *
+     * Content-Disposition, lui, est laissé à la façade : elle produit la forme
+     * double de la RFC 6266 — repli ASCII plus `filename*=utf-8''` — dont un
+     * nom d'origine hors ASCII a besoin. Le nom n'a pas à être réassaini ici,
+     * sanitizeOriginalName() l'a fait à l'écriture.
+     *
+     * @throws LinkContentMissingException
+     */
+    public function stream(File $file): StreamedResponse
+    {
+        $disk = Storage::disk((string) config('datashare.uploads.disk'));
+
+        // Contrôlé avant d'ouvrir le flux, et non pendant. Le disque est
+        // configuré 'throw' => true : une lecture manquante lèverait depuis le
+        // callback de la réponse, une fois les en-têtes de succès déjà partis,
+        // et le destinataire recevrait un 200 tronqué.
+        if (! $disk->fileExists($file->stored_path)) {
+            // Niveau error, au-dessus du warning des incidents ordinaires :
+            // une ligne vivante sans octets ne se répare pas toute seule. Le
+            // chemin n'est pas journalisé, l'identifiant numérique suffit.
+            Log::error('Link content missing', ['file_id' => $file->id]);
+
+            throw new LinkContentMissingException;
+        }
+
+        return $disk->download($file->stored_path, $file->original_name, [
+            'Content-Type' => $file->mime_type,
+            'Content-Length' => (string) $file->size,
+        ]);
     }
 
     /**

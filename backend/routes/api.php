@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Files\FileController;
+use App\Http\Controllers\Links\LinkController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/ping', fn () => response()->json(['status' => 'ok']));
@@ -26,4 +27,20 @@ Route::prefix('auth')->middleware('auth:api')->group(function () {
 // rien à voir avec celui d'un simple appel JSON (US01).
 Route::prefix('files')->middleware(['auth:api', 'throttle:uploads'])->group(function () {
     Route::post('/', [FileController::class, 'store']);
+});
+
+// Ouvertes à tous comme register et login, mais la menace n'est pas la même :
+// ici le secret est dans l'URL. Le GET reste au plafond général — pour un
+// appelant anonyme, `api` compte déjà 60 requêtes par minute et par IP, et 22
+// caractères base62 rendent le balayage vain de toute façon. Le POST, lui, a
+// son propre limiteur : c'est le seul point du service où un mot de passe de
+// partage se devine (US02, US09).
+//
+// Aucune contrainte de route sur {token} : un token mal formé doit ressortir
+// avec notre 404 et son message français, pas avec le 404 au corps vide du
+// routeur.
+Route::prefix('links')->group(function () {
+    Route::get('/{token}', [LinkController::class, 'show']);
+    Route::post('/{token}/download', [LinkController::class, 'download'])
+        ->middleware('throttle:downloads');
 });
