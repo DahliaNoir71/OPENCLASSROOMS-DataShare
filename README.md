@@ -21,10 +21,11 @@ techniques ; le présent README ne traite que de la mise en route.
 
 ## État du projet
 
-La conception fonctionnelle et technique est arrêtée ; l'implémentation du
+La conception fonctionnelle et technique est arrêtée. L'implémentation du
 domaine métier a démarré par l'authentification (inscription US03, connexion
-US04). Le parcours de dépôt et de partage de fichiers reste entièrement à
-écrire.
+US04), puis a couvert le dépôt d'un fichier (US01) et le parcours de
+téléchargement par lien public (US02). Restent l'historique des fichiers
+(US05), la suppression manuelle (US06) et la purge planifiée (US10).
 
 | Brique | État |
 | --- | --- |
@@ -33,8 +34,8 @@ US04). Le parcours de dépôt et de partage de fichiers reste entièrement à
 | Frontend Vue 3 + TypeScript (`frontend/`) | ✅ initialisé |
 | Architecture technique | ✅ documentée |
 | Authentification JWT | ✅ `php-open-source-saver/jwt-auth` installé et configuré |
-| Contrat d'API | 🟡 5 opérations sur 9 implémentées — les quatre d'authentification et le dépôt de fichier (US01) |
-| Modèle de données métier | 🟡 conçu — table `files` à écrire |
+| Contrat d'API | 🟡 7 opérations sur 9 implémentées — les quatre d'authentification, le dépôt de fichier (US01) et le parcours de téléchargement (US02) |
+| Modèle de données métier | ✅ table `files` migrée et exploitée |
 | Écrans de la SPA | 🟡 accueil, inscription et connexion en place ; dépôt et partage à écrire |
 
 ## Stack technique
@@ -89,6 +90,14 @@ page `welcome` par défaut. L'interface utilisateur est servie exclusivement par
   refusent silencieusement tout fichier au-delà de 2 Mo. Ce prérequis ne vaut
   que pour le poste de développement : en déploiement, c'est le `php.ini` de
   php-fpm qui s'applique, à aligner de la même façon.
+- Pour le téléchargement (US02), rien à régler en développement : sous le SAPI
+  CLI de `php artisan serve`, `max_execution_time` vaut `0`. En déploiement, en
+  revanche, ce sont `request_terminate_timeout` du pool php-fpm et le
+  `fastcgi_read_timeout` (ou `proxy_read_timeout`) du serveur frontal qui
+  coupent un gros téléchargement lent — pas `max_execution_time`, que PHP
+  n'incrémente pas pendant les entrées-sorties de flux. À relever au même titre
+  que `post_max_size`. `memory_limit` n'est pas concerné : les octets sont
+  servis en flux, jamais chargés en mémoire.
 
 ## Installation
 
@@ -186,6 +195,8 @@ contrat d'API). Routes réellement en place à ce stade, cf.
 | `GET /api/auth/me` | Utilisateur du jeton porté par la requête |
 | `POST /api/auth/logout` | Invalidation du jeton courant |
 | `POST /api/files` | Dépôt d'un fichier authentifié (US01) — renvoie ses métadonnées et son lien de téléchargement |
+| `GET /api/links/{token}` | Métadonnées publiques d'un lien (US02) — nom, taille, type, expiration, protégé ou non |
+| `POST /api/links/{token}/download` | Téléchargement du fichier (US02, US09) — mot de passe dans le corps, jamais dans l'URL |
 
 S'y ajoute `GET /up`, la sonde de santé du framework déclarée dans
 [`bootstrap/app.php`](backend/bootstrap/app.php). Aucune autre route web n'est
@@ -197,14 +208,25 @@ sont en plus plafonnées à 5 par minute et par IP — ce sont celles qu'une att
 par bourrage d'identifiants viserait ; `me` et `logout`, derrière un jeton, ne
 relèvent que du plafond général. `POST /files` (US01) a son propre plafond, 10
 par minute et par utilisateur : un ceiling qui n'a rien à voir avec celui d'un
-simple appel JSON, chaque appel pouvant transporter jusqu'à 1 Go. Un
-dépassement renvoie `429` avec un en-tête `Retry-After`. Les trois limiteurs
-sont définis dans
+simple appel JSON, chaque appel pouvant transporter jusqu'à 1 Go.
+
+`POST /api/links/{token}/download` (US02) est le seul à porter **deux plafonds
+simultanés**, parce que deux attaques distinctes visent la même route : 10 par
+minute et par lien, contre la recherche du mot de passe d'un partage connu, et
+30 par minute et par IP, contre le balayage de l'espace des jetons. Les deux
+doivent passer. Le `GET` des métadonnées, lui, s'en tient au plafond général —
+pour un appelant anonyme celui-ci compte déjà par IP, et 22 caractères base62
+rendent l'énumération vaine de toute façon.
+
+Un dépassement renvoie `429` avec un en-tête `Retry-After`. Les quatre
+limiteurs sont définis dans
 [`AppServiceProvider`](backend/app/Providers/AppServiceProvider.php) ; leurs
 compteurs sont tenus dans le store de cache (`CACHE_STORE=database`, soit la
-table `cache`), seul usage du cache à ce stade. Chaque dépassement laisse une
-ligne `warning` dans les journaux : sans elle, Laravel ne rapporte pas les `429`
-et une attaque par bourrage d'identifiants passerait inaperçue.
+table `cache`), seul usage du cache à ce stade — et la clé du plafond par lien
+est un condensat, pour qu'un jeton de partage ne se retrouve pas au repos dans
+cette table. Chaque dépassement laisse une ligne `warning` dans les journaux :
+sans elle, Laravel ne rapporte pas les `429` et une attaque par bourrage
+d'identifiants passerait inaperçue.
 
 Toute réponse `/api` porte `Cache-Control: no-store, private`, posé par le
 middleware [`NoStore`](backend/app/Http/Middleware/NoStore.php) en tête du
@@ -323,7 +345,7 @@ passage en ligne de commande.
 ```text
 .
 ├── backend/                    API REST Laravel
-│   ├── app/                    Modèles, contrôleurs, form requests, providers
+│   ├── app/                    Modèles, contrôleurs, requests, services, exceptions
 │   ├── config/                 Configuration du framework (dont jwt.php)
 │   ├── database/               Migrations, factories, seeders
 │   ├── routes/                 Déclaration des routes (api.php, web.php)
@@ -383,9 +405,10 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [x] Écrire la migration du modèle métier : table `files` (US01)
 - [ ] Aligner `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
       `remember_token` restent livrés par le squelette, absents du modèle)
-- [ ] Implémenter les 4 opérations restantes du contrat d'API — celles des
-      liens et la suppression manuelle — et le scheduler de purge ; les 4
-      opérations d'authentification et le dépôt de fichier (US01) sont faits
+- [ ] Implémenter les 2 opérations restantes du contrat d'API — l'historique
+      (US05) et la suppression manuelle (US06) — et le scheduler de purge
+      (US10) ; les 4 opérations d'authentification, le dépôt de fichier (US01)
+      et le parcours de téléchargement (US02) sont faits
 - [ ] Construire les écrans de dépôt, de liste et de partage de la SPA d'après
       les maquettes ; accueil, inscription et connexion sont en place
 - [x] Supprimer la chaîne de build front du backend, devenue morte :
@@ -395,10 +418,10 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       encore qu'aucun paquet JWT n'était installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
       sans laquelle aucune purge n'a lieu
-- [ ] Compléter la piste d'audit au fil des routes restantes (`Link consumed`,
-      `File deleted`, `Expired files purged`) — les événements
-      d'authentification et `File uploaded` (US01) sont en place, la
-      convention est dans
+- [ ] Compléter la piste d'audit au fil des routes restantes (`File deleted`,
+      `Expired files purged`) — les événements d'authentification,
+      `File uploaded` (US01) et les trois du téléchargement (US02) sont en
+      place, la convention est dans
       [docs/architecture.md](docs/architecture.md#la-piste-daudit)
 - [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=info` — et non `warning`,
       qui ferait taire la piste d'audit —, canal `daily` ou `stderr`, et

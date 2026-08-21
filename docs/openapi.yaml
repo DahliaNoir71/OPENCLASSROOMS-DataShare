@@ -27,7 +27,17 @@ tags:
   - name: files
     description: Gestion des fichiers de l'utilisateur connecté (US01, US05, US06)
   - name: links
-    description: Accès public via lien de téléchargement (US02, US09)
+    description: >
+      Accès public via lien de téléchargement (US02, US09). Ouvertes à tous
+      comme les routes d'authentification, mais la menace n'est pas la même :
+      ici le secret est dans l'URL. `GET /links/{token}` relève du limiteur
+      standard — 60 requêtes par minute, comptées par adresse IP pour un
+      appelant anonyme, ce qui est déjà le plafond d'énumération recherché.
+      `POST /links/{token}/download` y ajoute son propre limiteur, à deux
+      plafonds simultanés : 10 par minute et par lien, ce qui rend vaine la
+      recherche du mot de passe d'un partage connu, et 30 par minute et par
+      adresse IP, ce qui borne le balayage de l'espace des jetons sans gêner un
+      bureau derrière une même sortie NAT.
 
 paths:
   /auth/register:
@@ -177,7 +187,12 @@ paths:
                 password:
                   type: string
                   minLength: 6
-                  description: Protection optionnelle du téléchargement (US09)
+                  maxLength: 72
+                  description: >
+                    Protection optionnelle du téléchargement (US09). Plafonné à
+                    72 octets : au-delà, bcrypt tronque silencieusement, et une
+                    valeur dont seuls les 72 premiers octets compteraient est
+                    refusée plutôt qu'acceptée à moitié.
                 expires_in_days:
                   type: integer
                   minimum: 1
@@ -187,11 +202,18 @@ paths:
       responses:
         "201":
           description: Fichier stocké, lien généré
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/UploadResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "413": { description: Fichier supérieur à 1 Go }
+        "413":
+          description: >
+            Corps de requête au-delà de `post_max_size`, refusé par la pile du
+            framework avant le contrôleur. Un fichier au-delà de 1 Go mais sous
+            cette limite serveur relève de la validation, donc du `422` : le
+            `413` signale une limite d'infrastructure, pas la règle métier.
         "422": { $ref: "#/components/responses/ValidationError" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -219,11 +241,14 @@ paths:
       summary: Métadonnées publiques avant téléchargement (US02)
       operationId: getLinkMetadata
       security: []
+      description: >
+        Projection publique du fichier, réduite à ce dont l'écran de
+        téléchargement a besoin. Ni identifiant interne, ni chemin physique, ni
+        propriétaire, ni date de dépôt : le destinataire n'est pas le déposant.
+        La présence effective des octets sur le disque n'est pas vérifiée ici —
+        c'est le téléchargement qui contrôle juste avant d'ouvrir le flux.
       parameters:
-        - name: token
-          in: path
-          required: true
-          schema: { type: string }
+        - $ref: "#/components/parameters/ShareToken"
       responses:
         "200":
           description: Métadonnées visibles avant téléchargement
@@ -232,8 +257,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LinkMetadata" }
-        "404": { description: Lien invalide }
-        "410": { description: Lien expiré — fichier plus disponible }
+        "404": { $ref: "#/components/responses/LinkNotFound" }
+        "410": { $ref: "#/components/responses/LinkGone" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /links/{token}/download:
@@ -244,12 +269,20 @@ paths:
       security: []
       description: >
         POST (et non GET) car un mot de passe peut être requis ; il transite
-        dans le corps, jamais dans l'URL.
+        dans le corps, jamais dans l'URL — celle-ci part dans les journaux
+        d'accès, l'historique du navigateur et le `Referer`. La méthode est la
+        même que le fichier soit protégé ou non : un seul chemin de code, un
+        seul jeu d'états d'erreur, et rien qu'un intermédiaire soit autorisé à
+        stocker par défaut. Corollaire côté client : le corps se lit en `fetch`
+        puis `Blob`, ce qui met le fichier en mémoire navigateur — limite
+        assumée pour le prototype, cf. `docs/architecture.md`.
+
+
+        Ordre des contrôles : existence du lien, expiration, mot de passe,
+        présence physique des octets, puis ouverture du flux. Un lien échu
+        répond donc `410` sans qu'un mot de passe soit vérifié.
       parameters:
-        - name: token
-          in: path
-          required: true
-          schema: { type: string }
+        - $ref: "#/components/parameters/ShareToken"
       requestBody:
         content:
           application/json:
@@ -258,19 +291,42 @@ paths:
               properties:
                 password:
                   type: string
-                  description: Requis uniquement si le fichier est protégé
+                  maxLength: 72
+                  description: >
+                    Requis uniquement si le fichier est protégé. Aucune borne
+                    minimale : une contrainte de longueur sur une entrée de
+                    vérification divulguerait la politique de mot de passe.
       responses:
         "200":
           description: Contenu binaire du fichier
           headers:
             Cache-Control: { $ref: "#/components/headers/NoStore" }
             Content-Disposition: { $ref: "#/components/headers/ContentDisposition" }
+            Content-Length: { $ref: "#/components/headers/ContentLength" }
+            Content-Type:
+              description: >
+                Type MIME relevé au dépôt, tel que stocké en base — jamais
+                redétecté sur le contenu : le fichier physique est un UUID sans
+                extension, et la valeur annoncée ici doit être celle que
+                `GET /links/{token}` a déjà annoncée.
+              required: true
+              schema: { type: string, example: application/pdf }
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
-        "401": { description: Mot de passe absent ou incorrect }
-        "404": { description: Lien invalide }
-        "410": { description: Lien expiré }
+        "401":
+          description: >
+            Mot de passe absent ou incorrect. Un seul code et un seul message
+            pour les deux cas : c'est un unique échec de vérification, et le
+            client connaît déjà `protected` par les métadonnées.
+          headers:
+            Cache-Control: { $ref: "#/components/headers/NoStore" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+        "404": { $ref: "#/components/responses/LinkNotFound" }
+        "410": { $ref: "#/components/responses/LinkGone" }
+        "422": { $ref: "#/components/responses/ValidationError" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
 components:
@@ -279,6 +335,23 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+
+  parameters:
+    ShareToken:
+      name: token
+      in: path
+      required: true
+      description: >
+        Jeton du lien de partage : 22 caractères base62, soit ≈ 131 bits
+        d'entropie (longueur pilotée par `DATASHARE_TOKEN_LENGTH`). C'est un
+        secret porteur — qui le détient télécharge le fichier —, d'où son
+        exclusion des journaux applicatifs. Un jeton mal formé n'est pas
+        distingué d'un jeton inconnu : les deux répondent `404`, aucun `400`
+        n'est émis.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9]+$"
+        example: 3xK9mQ7vTz2LpR8sN4wJyB
 
   headers:
     RetryAfter:
@@ -300,13 +373,46 @@ components:
 
     ContentDisposition:
       description: >
-        `attachment; filename="<nom d'origine>"`. C'est par cet en-tête, et
-        non par le corps, que le nom de fichier d'origine remonte au
-        destinataire : le nom physique sur disque est un UUID.
+        Toujours `attachment`, jamais `inline` : les octets déposés ne
+        s'affichent pas dans le navigateur du destinataire. C'est par cet
+        en-tête, et non par le corps, que le nom de fichier d'origine remonte —
+        le nom physique sur disque est un UUID sans extension.
+
+
+        La forme est celle que produit Symfony, soit la double notation de la
+        RFC 6266 : `filename` porte un repli translittéré en ASCII, et
+        `filename*` le nom réel encodé en UTF-8. Ce second paramètre n'apparaît
+        que si le nom sort de l'ASCII, et les guillemets ne sont posés que si la
+        valeur contient un caractère hors du jeu `token` de HTTP (une espace,
+        par exemple). Trois formes valides, donc, selon le nom :
+        `attachment; filename=rapport.pdf`,
+        `attachment; filename="mon rapport.pdf"`, et
+        `attachment; filename=rapport-ete.pdf; filename*=utf-8''rapport-%C3%A9t%C3%A9.pdf`.
       required: true
       schema: { type: string }
 
+    ContentLength:
+      description: >
+        Taille en octets, reprise de la colonne `size` plutôt que relevée sur
+        le disque : c'est la même valeur que `GET /links/{token}` a annoncée, et
+        sur un driver de stockage distant c'est une requête de métadonnées
+        épargnée. Aucun `Accept-Ranges` ne l'accompagne : le prototype ne gère
+        pas les requêtes partielles, donc une coupure impose de reprendre le
+        téléchargement à zéro.
+      required: true
+      schema: { type: integer, example: 2457600 }
+
   schemas:
+    Message:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: >
+            Libellé en français, destiné à être affiché tel quel : le front
+            n'invente aucun libellé d'erreur métier.
+
     AuthResponse:
       type: object
       properties:
@@ -336,7 +442,14 @@ components:
         protected: { type: boolean, description: true si mot de passe défini }
         expires_at: { type: string, format: date-time }
         expired: { type: boolean, description: calculé serveur }
-        link: { type: string, format: uri, description: URL publique de téléchargement }
+        link:
+          type: string
+          format: uri
+          description: >
+            URL de l'écran de téléchargement de la SPA,
+            `{DATASHARE_FRONTEND_URL}/l/{token}` — et non un point d'entrée de
+            cette API. C'est le seul champ où le jeton apparaisse, noyé dans le
+            lien à copier.
         created_at: { type: string, format: date-time }
 
     UploadResponse:
@@ -346,14 +459,43 @@ components:
 
     LinkMetadata:
       type: object
+      required: [original_name, size, mime_type, protected, expires_at]
+      description: >
+        Renvoyé à plat, sans enveloppe `data`, à la différence d'UploadResponse.
       properties:
         original_name: { type: string }
-        size: { type: integer }
+        size: { type: integer, description: octets }
         mime_type: { type: string }
-        protected: { type: boolean }
+        protected: { type: boolean, description: true si un mot de passe est défini }
         expires_at: { type: string, format: date-time }
 
   responses:
+    LinkNotFound:
+      description: >
+        Lien invalide. Volontairement indistinguable d'un lien jamais émis, mal
+        formé, ou dont la purge a effacé la ligne.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/NoStore" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Message" }
+    LinkGone:
+      description: >
+        Lien expiré — fichier plus disponible. Le `410` assume l'information
+        « ce fichier a existé » : pour l'obtenir il faut déjà détenir le jeton,
+        donc le secret du partage, et la distinguer du `404` évite d'envoyer un
+        destinataire légitime chercher une faute de copie inexistante.
+
+
+        La fenêtre est bornée par la purge quotidienne (US10) : une fois la
+        ligne supprimée, le même lien répond `404`. Ce code couvre aussi le cas
+        d'une ligne dont les octets ont disparu du disque — état identique pour
+        le destinataire, signalé à l'exploitant par une ligne de journal.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/NoStore" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Message" }
     Unauthorized:
       description: Jeton absent, invalide ou expiré
       content:
