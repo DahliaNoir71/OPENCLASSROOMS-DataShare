@@ -33,7 +33,7 @@ US04). Le parcours de dépôt et de partage de fichiers reste entièrement à
 | Frontend Vue 3 + TypeScript (`frontend/`) | ✅ initialisé |
 | Architecture technique | ✅ documentée |
 | Authentification JWT | ✅ `php-open-source-saver/jwt-auth` installé et configuré |
-| Contrat d'API | 🟡 4 opérations sur 9 implémentées — les quatre d'authentification |
+| Contrat d'API | 🟡 5 opérations sur 9 implémentées — les quatre d'authentification et le dépôt de fichier (US01) |
 | Modèle de données métier | 🟡 conçu — table `files` à écrire |
 | Écrans de la SPA | 🟡 accueil, inscription et connexion en place ; dépôt et partage à écrire |
 
@@ -80,6 +80,15 @@ page `welcome` par défaut. L'interface utilisateur est servie exclusivement par
   [`frontend/package.json`](frontend/package.json) (`^22.18.0 || >=24.12.0`) :
   un Node 22.0 à 22.17 est refusé, et Node 23 aussi
 - [Docker](https://docs.docker.com/) avec Docker Compose (pour PostgreSQL)
+- Pour le dépôt de fichiers (US01), un `php.ini` acceptant un fichier de 1 Go :
+  `upload_max_filesize = 1100M` et `post_max_size = 1200M` (marge au-delà de
+  1 Go pour l'enveloppe multipart — champs `password`, `expires_in_days`,
+  en-têtes de la requête). `php artisan serve` étant servi par le SAPI CLI de
+  PHP, c'est le `php.ini` retourné par `php --ini` (`Loaded Configuration
+  File`) qu'il faut éditer — les valeurs par défaut du framework (2M / 8M)
+  refusent silencieusement tout fichier au-delà de 2 Mo. Ce prérequis ne vaut
+  que pour le poste de développement : en déploiement, c'est le `php.ini` de
+  php-fpm qui s'applique, à aligner de la même façon.
 
 ## Installation
 
@@ -176,6 +185,7 @@ contrat d'API). Routes réellement en place à ce stade, cf.
 | `POST /api/auth/login` | Connexion (US04) — renvoie un JWT |
 | `GET /api/auth/me` | Utilisateur du jeton porté par la requête |
 | `POST /api/auth/logout` | Invalidation du jeton courant |
+| `POST /api/files` | Dépôt d'un fichier authentifié (US01) — renvoie ses métadonnées et son lien de téléchargement |
 
 S'y ajoute `GET /up`, la sonde de santé du framework déclarée dans
 [`bootstrap/app.php`](backend/bootstrap/app.php). Aucune autre route web n'est
@@ -185,8 +195,11 @@ Toutes les routes `/api` sont plafonnées à 60 requêtes par minute (par
 utilisateur authentifié, sinon par IP). `register` et `login`, ouvertes à tous,
 sont en plus plafonnées à 5 par minute et par IP — ce sont celles qu'une attaque
 par bourrage d'identifiants viserait ; `me` et `logout`, derrière un jeton, ne
-relèvent que du plafond général. Un dépassement renvoie `429`
-avec un en-tête `Retry-After`. Les deux limiteurs sont définis dans
+relèvent que du plafond général. `POST /files` (US01) a son propre plafond, 10
+par minute et par utilisateur : un ceiling qui n'a rien à voir avec celui d'un
+simple appel JSON, chaque appel pouvant transporter jusqu'à 1 Go. Un
+dépassement renvoie `429` avec un en-tête `Retry-After`. Les trois limiteurs
+sont définis dans
 [`AppServiceProvider`](backend/app/Providers/AppServiceProvider.php) ; leurs
 compteurs sont tenus dans le store de cache (`CACHE_STORE=database`, soit la
 table `cache`), seul usage du cache à ce stade. Chaque dépassement laisse une
@@ -335,12 +348,12 @@ passage en ligne de commande.
   `docker compose down -v && docker compose up -d`, puis `php artisan migrate`.
 - **Tests** : SQLite en mémoire, recréée à chaque exécution.
 
-Le schéma cible est décrit dans [docs/mcd.md](docs/mcd.md). Quatre migrations
+Le schéma cible est décrit dans [docs/mcd.md](docs/mcd.md). Cinq migrations
 sont en place : trois issues du squelette Laravel — à ceci près que `users` a
-perdu sa colonne `name` pour l'inscription (US03) — et une qui ajoute l'index
-d'unicité insensible à la casse décrit ci-dessous. Restent à aligner sur le
-MCD : `email_verified_at` et `remember_token`, absents du modèle métier ; et la
-table `files`, non encore créée.
+perdu sa colonne `name` pour l'inscription (US03) —, une qui ajoute l'index
+d'unicité insensible à la casse décrit ci-dessous, et une qui crée la table
+`files` (US01). Reste à aligner sur le MCD : `email_verified_at` et
+`remember_token`, absents du modèle métier.
 
 ### Unicité de l'email
 
@@ -367,12 +380,12 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       `php-open-source-saver/jwt-auth`
 - [x] Aligner `backend/.env.example` sur PostgreSQL
 - [x] Choisir et déclarer une licence → MIT
-- [ ] Écrire les migrations du modèle métier : table `files`, et fin d'alignement
-      de `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
+- [x] Écrire la migration du modèle métier : table `files` (US01)
+- [ ] Aligner `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
       `remember_token` restent livrés par le squelette, absents du modèle)
-- [ ] Implémenter les 5 opérations restantes du contrat d'API — celles des
-      fichiers et des liens — et le scheduler de purge ; les 4 opérations
-      d'authentification sont faites
+- [ ] Implémenter les 4 opérations restantes du contrat d'API — celles des
+      liens et la suppression manuelle — et le scheduler de purge ; les 4
+      opérations d'authentification et le dépôt de fichier (US01) sont faits
 - [ ] Construire les écrans de dépôt, de liste et de partage de la SPA d'après
       les maquettes ; accueil, inscription et connexion sont en place
 - [x] Supprimer la chaîne de build front du backend, devenue morte :
@@ -382,10 +395,10 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       encore qu'aucun paquet JWT n'était installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
       sans laquelle aucune purge n'a lieu
-- [ ] Compléter la piste d'audit au fil des routes (`File uploaded`,
-      `Link consumed`, `File deleted`, `Expired files purged`) — les événements
-      d'authentification (`User registered`, `User logged in`, `Login failed`,
-      `User logged out`) sont en place, la convention est dans
+- [ ] Compléter la piste d'audit au fil des routes restantes (`Link consumed`,
+      `File deleted`, `Expired files purged`) — les événements
+      d'authentification et `File uploaded` (US01) sont en place, la
+      convention est dans
       [docs/architecture.md](docs/architecture.md#la-piste-daudit)
 - [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=info` — et non `warning`,
       qui ferait taire la piste d'audit —, canal `daily` ou `stderr`, et

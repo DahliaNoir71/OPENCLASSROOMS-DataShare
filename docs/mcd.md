@@ -6,7 +6,7 @@
 flowchart LR
     U["<b>UTILISATEUR</b>\n─────────────\n<u>id_utilisateur</u>\nemail\nmot_de_passe"]
     A(("DÉPOSE"))
-    F["<b>FICHIER</b>\n─────────────\n<u>id_fichier</u>\ntoken\nnom_original\nnom_stocke\ntype_mime\ntaille\nmot_de_passe (opt.)\ndate_expiration"]
+    F["<b>FICHIER</b>\n─────────────\n<u>id_fichier</u>\ntoken\nnom_original\nchemin_stocke\ntype_mime\ntaille\nmot_de_passe (opt.)\ndate_expiration"]
 
     U ---|"0,n"| A
     A ---|"1,1"| F
@@ -37,9 +37,9 @@ erDiagram
     FILES {
         bigint id PK
         bigint user_id FK "NOT NULL, ON DELETE CASCADE"
-        varchar token UK "8 car. max, non predictible, NOT NULL"
+        varchar token UK "22 car., non predictible, NOT NULL"
         varchar original_name "NOT NULL"
-        varchar stored_name "UUID physique, NOT NULL"
+        varchar stored_path "chemin relatif sur le disque dedie, NOT NULL"
         varchar mime_type "NOT NULL"
         bigint size "octets, max 1 Go"
         varchar password "hash bcrypt, NULLABLE (US09)"
@@ -66,11 +66,22 @@ dédié), le SGBD n'ayant aucune prise sur le système de fichiers.
 
 ## Décisions de conception
 
-- **`token` distinct de `id`** : le lien public utilise un identifiant court
-  non prédictible (US02) — jamais la clé auto-incrémentée.
-- **`stored_name` distinct de `original_name`** : nom physique aléatoire sur
-  disque (anti-collision, anti-traversée de chemin) ; le nom d'origine ne sert
-  qu'à l'affichage et au téléchargement.
+- **`token` distinct de `id`** : le lien public utilise un identifiant non
+  prédictible (US02) — jamais la clé auto-incrémentée. Généré par
+  `Str::random(22)` (base62, ≈ 131 bits d'entropie) plutôt que sur 8
+  caractères comme envisagé initialement : à volume de liens vivants égal, un
+  espace à 8 caractères se prête à un balayage complet par force brute en
+  quelques heures au plafond même de l'API — un token exposé dans une URL
+  publique ne peut pas se permettre cette densité. `Str::ulid()` a été écarté
+  pour la raison inverse : son préfixe est un horodatage, donc prédictible et
+  ordonné, ce qui divulguerait la date de dépôt.
+- **`stored_path` distinct de `original_name`** : chemin physique aléatoire
+  sur disque, partitionné par date (`AAAA/MM/JJ/uuid`, sans extension) —
+  anti-collision, anti-traversée de chemin, répertoires bornés dans le temps.
+  Le nom d'origine ne sert qu'à l'affichage et au téléchargement
+  (`Content-Disposition`, US02) ; conserver le chemin complet plutôt que le
+  seul UUID est ce qui rend le partitionnement retrouvable sans avoir à le
+  redériver de `created_at`.
 - **État « expiré » calculé** (`expires_at < now()`), aucune colonne d'état :
   une seule source de vérité ; la purge quotidienne supprime ensuite
   physiquement (US10).
