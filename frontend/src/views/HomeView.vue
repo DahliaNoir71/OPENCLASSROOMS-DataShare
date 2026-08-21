@@ -1,21 +1,48 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+
 import AppHeader from '@/components/AppHeader.vue'
+import UploadCard from '@/components/UploadCard.vue'
+import { useAuthStore } from '@/stores/auth'
+
+const router = useRouter()
+const route = useRoute()
+const authStore = useAuthStore()
+
+const showUploadCard = ref(false)
+
+/**
+ * Le téléversement exige un compte : sans jeton, on passe par la connexion en
+ * mémorisant la page à rejoindre ensuite. Avec un jeton, la carte s'ouvre ici
+ * même — US01 n'a pas de route dédiée.
+ */
+function onUploadClick(): void {
+  if (!authStore.token) {
+    void router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+
+  showUploadCard.value = true
+}
 </script>
 
 <template>
   <div class="home-page">
     <AppHeader />
 
-    <main class="home-hero">
+    <main v-if="showUploadCard" class="home-main">
+      <UploadCard />
+    </main>
+
+    <main v-else class="home-hero">
       <h1 class="home-title">Tu veux partager un fichier ?</h1>
 
-      <!-- TODO lot téléversement -->
       <button
         class="home-upload-button"
         type="button"
-        disabled
-        aria-disabled="true"
         aria-label="Téléverser un fichier"
+        @click="onUploadClick"
       >
         <svg
           class="home-upload-icon"
@@ -44,6 +71,13 @@ import AppHeader from '@/components/AppHeader.vue'
   display: flex;
   flex-direction: column;
   background: var(--ds-gradient-bg);
+}
+
+.home-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: var(--ds-space-lg) var(--ds-space-md);
 }
 
 .home-hero {
@@ -93,6 +127,14 @@ import AppHeader from '@/components/AppHeader.vue'
 }
 
 @media (min-width: 768px) {
+  .home-main {
+    align-items: center;
+  }
+
+  .home-main > * {
+    max-width: 420px;
+  }
+
   .app-footer {
     display: block;
     padding: 1rem;
