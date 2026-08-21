@@ -16,12 +16,15 @@ techniques ; le présent README ne traite que de la mise en route.
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | Composants, flux aller et retour, cache, journalisation, décisions techniques et limites du scheduler |
 | [docs/mcd.md](docs/mcd.md) | MCD (Merise) et MLD, contraintes, index, décisions de modélisation |
-| [docs/openapi.yaml](docs/openapi.yaml) | Contrat d'API (OpenAPI 3.1) — 7 opérations |
+| [docs/openapi.yaml](docs/openapi.yaml) | Contrat d'API (OpenAPI 3.1) — 9 opérations |
+| [docs/design-tokens.md](docs/design-tokens.md) | Jetons de design de la SPA (couleurs, typographie, espacements) |
 
 ## État du projet
 
 La conception fonctionnelle et technique est arrêtée ; l'implémentation du
-domaine métier a démarré par l'inscription (US03).
+domaine métier a démarré par l'authentification (inscription US03, connexion
+US04). Le parcours de dépôt et de partage de fichiers reste entièrement à
+écrire.
 
 | Brique | État |
 | --- | --- |
@@ -30,9 +33,9 @@ domaine métier a démarré par l'inscription (US03).
 | Frontend Vue 3 + TypeScript (`frontend/`) | ✅ initialisé |
 | Architecture technique | ✅ documentée |
 | Authentification JWT | ✅ `php-open-source-saver/jwt-auth` installé et configuré |
-| Contrat d'API | 🟡 1 opération sur 7 implémentée (`POST /api/auth/register`) |
+| Contrat d'API | 🟡 4 opérations sur 9 implémentées — les quatre d'authentification |
 | Modèle de données métier | 🟡 conçu — table `files` à écrire |
-| Écrans de la SPA | ⬜ scaffold Vue non encore remplacé |
+| Écrans de la SPA | 🟡 accueil, inscription et connexion en place ; dépôt et partage à écrire |
 
 ## Stack technique
 
@@ -47,12 +50,12 @@ domaine métier a démarré par l'inscription (US03).
 | PHPUnit | ^12.5 | Tests automatisés |
 | Laravel Pint | ^1.27 | Formatage du code PHP |
 | Laravel Pail | ^1.2 | Lecture des logs en direct |
-| Vite | ^8.0 | Build des assets du squelette Laravel |
-| Tailwind CSS | ^4.0 | Feuilles de style du squelette Laravel |
 
-Les deux dernières lignes concernent les assets Blade livrés par le squelette,
-pas l'interface utilisateur : celle-ci est servie par `frontend/`, qui possède
-sa propre chaîne de build.
+Le backend n'a **aucune chaîne de build front**, donc aucune dépendance npm : le
+`package.json`, le `vite.config.js` et le dossier `resources/` livrés par le
+squelette Laravel ont été supprimés, puisqu'ils ne servaient qu'à compiler la
+page `welcome` par défaut. L'interface utilisateur est servie exclusivement par
+`frontend/`, qui possède sa propre chaîne de build.
 
 ### Frontend
 
@@ -72,9 +75,10 @@ sa propre chaîne de build.
 
 - PHP **8.3** ou supérieur, avec les extensions habituelles de Laravel (dont `pdo_pgsql`)
 - [Composer](https://getcomposer.org/) 2.x
-- [Node.js](https://nodejs.org/) **22.18.x → 22.x, ou 24.12+** et npm — contrainte
-  `engines` de [`frontend/package.json`](frontend/package.json)
-  (`^22.18.0 || >=24.12.0`) : un Node 22.0 à 22.17 est refusé, et Node 23 aussi
+- [Node.js](https://nodejs.org/) **22.18.x → 22.x, ou 24.12+** et npm, pour le
+  frontend uniquement — contrainte `engines` de
+  [`frontend/package.json`](frontend/package.json) (`^22.18.0 || >=24.12.0`) :
+  un Node 22.0 à 22.17 est refusé, et Node 23 aussi
 - [Docker](https://docs.docker.com/) avec Docker Compose (pour PostgreSQL)
 
 ## Installation
@@ -127,22 +131,13 @@ Les deux clés sont laissées vides dans `.env.example` et ne sont jamais
 versionnées. **`jwt:secret` n'est pas optionnel** : sans lui, toute route
 d'authentification échoue à la signature.
 
-### 4. Installer les assets du backend
+> L'étape 3 est enchaînée par `composer run setup` (`composer install`, copie du
+> `.env`, `key:generate`, `migrate --force`). Attention, ce script **n'appelle
+> pas** `jwt:secret` : il reste à lancer à la main après coup.
 
-```bash
-npm install
-npm run build
-```
+Aucun `npm install` n'est à lancer dans `backend/` : l'API ne sert aucun asset.
 
-Le fichier `.npmrc` du backend force `ignore-scripts=true` : les scripts
-d'installation des paquets npm ne sont pas exécutés, par précaution.
-
-> Les étapes 3 et 4 sont enchaînées par `composer run setup` (`composer install`,
-> copie du `.env`, `key:generate`, `migrate --force`, `npm install
-> --ignore-scripts`, `npm run build`). Attention, ce script **n'appelle pas**
-> `jwt:secret` : il reste à lancer à la main après coup.
-
-### 5. Installer le frontend
+### 4. Installer le frontend
 
 Depuis la racine du dépôt :
 
@@ -151,21 +146,23 @@ cd frontend
 npm install
 ```
 
-> ⚠️ Contrairement au backend, `frontend/` n'a pas de `.npmrc` : `npm install`
-> exécute donc le script `prepare`, soit `cypress install`, qui télécharge le
-> binaire Cypress (une centaine de mégaoctets). Pour s'en passer, utiliser
-> `npm install --ignore-scripts` — les tests end-to-end resteront alors
+> ⚠️ `npm install` exécute ici le script `prepare`, soit `cypress install`, qui
+> télécharge le binaire Cypress (une centaine de mégaoctets). Pour s'en passer,
+> utiliser `npm install --ignore-scripts` — les tests end-to-end resteront alors
 > indisponibles jusqu'à un `npx cypress install` explicite.
 
 ## Lancer l'environnement de développement
 
+Il n'existe **pas** de commande unique : l'API et la SPA sont deux serveurs
+distincts, à démarrer dans deux terminaux, une fois la base de données lancée
+(`docker compose up -d` depuis la racine).
+
 ### Backend
 
-Depuis `backend/`, une seule commande démarre le serveur HTTP, le worker de file
-d'attente, le suivi des logs et Vite en parallèle :
+Depuis `backend/` :
 
 ```bash
-composer run dev
+php artisan serve
 ```
 
 L'API est alors disponible sur <http://localhost:8000> (préfixe `/api`, cf. le
@@ -176,10 +173,19 @@ contrat d'API). Routes réellement en place à ce stade, cf.
 | --- | --- |
 | `GET /api/ping` | Sonde de disponibilité, hors contrat d'API |
 | `POST /api/auth/register` | Inscription (US03) — renvoie un JWT et l'utilisateur créé |
+| `POST /api/auth/login` | Connexion (US04) — renvoie un JWT |
+| `GET /api/auth/me` | Utilisateur du jeton porté par la requête |
+| `POST /api/auth/logout` | Invalidation du jeton courant |
+
+S'y ajoute `GET /up`, la sonde de santé du framework déclarée dans
+[`bootstrap/app.php`](backend/bootstrap/app.php). Aucune autre route web n'est
+exposée : [`routes/web.php`](backend/routes/web.php) est vide.
 
 Toutes les routes `/api` sont plafonnées à 60 requêtes par minute (par
-utilisateur authentifié, sinon par IP), et les routes `/api/auth/*` à 5 par
-minute et par IP — elles sont ouvertes à tous. Un dépassement renvoie `429`
+utilisateur authentifié, sinon par IP). `register` et `login`, ouvertes à tous,
+sont en plus plafonnées à 5 par minute et par IP — ce sont celles qu'une attaque
+par bourrage d'identifiants viserait ; `me` et `logout`, derrière un jeton, ne
+relèvent que du plafond général. Un dépassement renvoie `429`
 avec un en-tête `Retry-After`. Les deux limiteurs sont définis dans
 [`AppServiceProvider`](backend/app/Providers/AppServiceProvider.php) ; leurs
 compteurs sont tenus dans le store de cache (`CACHE_STORE=database`, soit la
@@ -193,14 +199,17 @@ groupe : aucune réponse de cette API n'est stockable, ni par un proxy ni par le
 navigateur. Le raisonnement est dans
 [docs/architecture.md](docs/architecture.md#cache).
 
-Pour lancer les services séparément :
+Deux processus facultatifs, à lancer dans des terminaux supplémentaires selon le
+besoin :
 
 ```bash
-php artisan serve                          # serveur HTTP
 php artisan queue:listen --tries=1         # traitement des jobs
 php artisan pail                           # logs en direct
-npm run dev                                # Vite en mode watch
 ```
+
+Le worker de file d'attente ne sert à rien à ce stade : aucun job n'est encore
+défini (pas de `app/Jobs`, aucun `dispatch()`). Il deviendra nécessaire quand la
+purge ou l'envoi de courriels seront implémentés.
 
 ### Frontend
 
@@ -212,12 +221,13 @@ npm run build                              # type-check puis build de production
 npm run preview                            # sert le build sur le port 4173
 ```
 
-Les deux serveurs tournent en parallèle. La SPA n'appelle **pas** le port 8000
-directement : [`frontend/vite.config.ts`](frontend/vite.config.ts) déclare un
-proxy qui relaie `/api` vers `http://localhost:8000`. Côté code, les requêtes
-visent donc des chemins relatifs (`/api/...`), ce qui évite le CORS en
-développement — mais impose que `php artisan serve` tourne, sinon le proxy
-renvoie une erreur de connexion.
+C'est <http://localhost:5173> qu'on ouvre dans le navigateur — le port 8000 n'a
+aucune interface à servir. La SPA n'appelle **pas** ce port directement :
+[`frontend/vite.config.ts`](frontend/vite.config.ts) déclare un proxy qui relaie
+`/api` vers `http://localhost:8000`. Côté code, les requêtes visent donc des
+chemins relatifs (`/api/...`), ce qui évite le CORS en développement — mais
+impose que `php artisan serve` tourne, sinon le proxy renvoie une erreur de
+connexion.
 
 ## Tests
 
@@ -303,13 +313,13 @@ passage en ligne de commande.
 │   ├── app/                    Modèles, contrôleurs, form requests, providers
 │   ├── config/                 Configuration du framework (dont jwt.php)
 │   ├── database/               Migrations, factories, seeders
-│   ├── resources/              Vues Blade, CSS, JS du squelette
 │   ├── routes/                 Déclaration des routes (api.php, web.php)
 │   ├── storage/                Logs, cache, fichiers déposés (non versionnés)
 │   └── tests/                  Tests unitaires et fonctionnels
 ├── frontend/                   SPA Vue 3 + TypeScript
 │   ├── cypress/                Tests end-to-end
 │   └── src/
+│       ├── assets/             Feuilles de style, jetons de design, polices
 │       ├── components/         Composants réutilisables
 │       ├── router/             Routes côté client
 │       ├── stores/             Stores Pinia
@@ -360,20 +370,22 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [ ] Écrire les migrations du modèle métier : table `files`, et fin d'alignement
       de `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
       `remember_token` restent livrés par le squelette, absents du modèle)
-- [ ] Implémenter les 6 opérations restantes du contrat d'API et le scheduler de
-      purge (`POST /api/auth/register` est faite)
-- [ ] Construire les écrans de la SPA d'après les maquettes ; le scaffold Vue
-      (`HelloWorld`, `TheWelcome`, `AboutView`, store `counter`) est encore en place
-- [ ] Remplacer `backend/README.md` et `frontend/README.md`, restés les fichiers
-      par défaut de Laravel et du template Vue
+- [ ] Implémenter les 5 opérations restantes du contrat d'API — celles des
+      fichiers et des liens — et le scheduler de purge ; les 4 opérations
+      d'authentification sont faites
+- [ ] Construire les écrans de dépôt, de liste et de partage de la SPA d'après
+      les maquettes ; accueil, inscription et connexion sont en place
+- [x] Supprimer la chaîne de build front du backend, devenue morte :
+      `package.json`, `.npmrc`, `vite.config.js`, `resources/` et la route `/`
+      de `routes/web.php`
 - [x] Mettre à jour [docs/architecture.md](docs/architecture.md), qui indiquait
       encore qu'aucun paquet JWT n'était installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
       sans laquelle aucune purge n'a lieu
 - [ ] Compléter la piste d'audit au fil des routes (`File uploaded`,
-      `Link consumed`, `File deleted`, `Expired files purged`) et journaliser
-      les échecs d'authentification avec US04 — la convention et le seul
-      événement implémentable aujourd'hui, `User registered`, sont dans
+      `Link consumed`, `File deleted`, `Expired files purged`) — les événements
+      d'authentification (`User registered`, `User logged in`, `Login failed`,
+      `User logged out`) sont en place, la convention est dans
       [docs/architecture.md](docs/architecture.md#la-piste-daudit)
 - [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=info` — et non `warning`,
       qui ferait taire la piste d'audit —, canal `daily` ou `stderr`, et
