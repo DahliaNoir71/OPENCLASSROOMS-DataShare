@@ -275,8 +275,9 @@ irréversible exigé par US06 ne laisse, par construction, aucune autre preuve.
 | `File deleted` | `204` sur `/files/{id}` | `user_id`, `file_id` |
 | `Expired files purged` | passage du scheduler | nombre supprimé, nombre en échec |
 
-Les quatre premières lignes sont implémentées, les routes d'authentification
-étant les seules écrites. Les autres arrivent avec leur route.
+Les cinq premières lignes sont implémentées : les quatre routes
+d'authentification, et `File uploaded` avec le dépôt de fichier (US01). Les
+trois dernières arrivent avec leur route.
 
 `Login failed` est la seule de la famille à sortir du niveau `info` : un échec
 d'authentification pris isolément est une réponse normale, mais sa
@@ -426,13 +427,14 @@ la rotation des journaux, le niveau de log de production et le choix du store de
 cache, tous pilotés par variables d'environnement.
 
 Ce document décrit l'architecture cible, celle du contrat d'API. À ce stade,
-quatre opérations sont implémentées, toutes d'authentification :
-`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` et
-`POST /api/auth/logout`. Le parcours de téléchargement schématisé plus haut est
-donc une conception, pas un état des lieux.
+cinq opérations sont implémentées : les quatre d'authentification —
+`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`,
+`POST /api/auth/logout` — et le dépôt de fichier, `POST /api/files` (US01). Le
+parcours de téléchargement schématisé plus haut, lui, reste une conception,
+pas un état des lieux.
 
 Sont en revanche en place et opérants, parce qu'ils ne dépendent d'aucune route
-en particulier : les deux limiteurs de débit, le middleware `NoStore` sur tout
+en particulier : les trois limiteurs de débit, le middleware `NoStore` sur tout
 le groupe `api`, la journalisation des dépassements de quota et le contexte
 d'exception. Ce qui reste attaché à une opération non écrite — flux binaire,
 `Content-Disposition`, contrôle d'expiration, rapport de purge — arrivera avec

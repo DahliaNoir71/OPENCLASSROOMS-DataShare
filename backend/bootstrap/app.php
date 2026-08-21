@@ -5,6 +5,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\PostTooLargeException;
 use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -32,6 +33,19 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             return response()->json(['message' => 'Authentification requise.'], 401);
+        });
+
+        // Levée par ValidatePostSize (pile globale du framework) quand le
+        // corps dépasse post_max_size, avant même que la requête n'atteigne
+        // le contrôleur d'upload. Son message par défaut, "The POST data is
+        // too large.", est la seule chaîne anglaise que l'API renverrait —
+        // même raison que pour AuthenticationException ci-dessus.
+        $exceptions->render(function (PostTooLargeException $e, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json(['message' => 'Le fichier envoyé est trop volumineux.'], 413);
         });
 
         // Context attached to every reported exception. The route pattern, not

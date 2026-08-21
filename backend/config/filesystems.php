@@ -47,6 +47,21 @@ return [
             'report' => false,
         ],
 
+        // Disque dédié aux fichiers déposés (US01) : jamais 'local' ni
+        // 'public', pour que la purge (US10) et la suppression manuelle
+        // (US06) opèrent sur une racine qui ne contient que des dépôts.
+        // 'serve' est volontairement absent (donc faux) : aucune route ne
+        // doit exposer directement ces octets, qui ne doivent transiter que
+        // par le contrôleur de téléchargement — cf. docs/architecture.md,
+        // décision « fichiers hors racine web, servis par un contrôleur ».
+        'uploads' => [
+            'driver' => 'local',
+            'root' => storage_path('app/uploads'),
+            'visibility' => 'private',
+            'throw' => true,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
