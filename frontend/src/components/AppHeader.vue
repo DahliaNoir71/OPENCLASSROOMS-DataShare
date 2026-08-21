@@ -1,8 +1,7 @@
 <template>
   <header class="app-header">
     <span class="app-header-logo">DataShare</span>
-    <!-- TODO US04 : pointer vers /login -->
-    <router-link class="app-header-login" to="/register">Se connecter</router-link>
+    <router-link class="app-header-login" to="/login">Se connecter</router-link>
   </header>
 </template>
 

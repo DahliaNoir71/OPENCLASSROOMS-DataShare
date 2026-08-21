@@ -17,7 +17,7 @@ beforeEach(() => {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: HomeView },
-      { path: '/register', component: { template: '<div />' } },
+      { path: '/login', component: { template: '<div />' } },
     ],
   })
 })
@@ -38,11 +38,11 @@ describe('HomeView', () => {
     expect(button.attributes('aria-disabled')).toBe('true')
   })
 
-  it('le header contient un lien vers /register', () => {
+  it('le header contient un lien vers /login', () => {
     const wrapper = mountView()
 
     const link = wrapper.find('.app-header-login')
     expect(link.exists()).toBe(true)
-    expect(link.attributes('href')).toBe('/register')
+    expect(link.attributes('href')).toBe('/login')
   })
 })

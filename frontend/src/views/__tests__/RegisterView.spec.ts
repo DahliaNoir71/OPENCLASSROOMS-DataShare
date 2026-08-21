@@ -47,6 +47,7 @@ beforeEach(() => {
     routes: [
       { path: '/', component: { template: '<div />' } },
       { path: '/register', component: RegisterView },
+      { path: '/login', component: { template: '<div />' } },
     ],
   })
 })

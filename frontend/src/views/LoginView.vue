@@ -3,7 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppHeader from '@/components/AppHeader.vue'
-import { RegisterValidationError, useAuthStore } from '@/stores/auth'
+import { AuthMessageError, RegisterValidationError, useAuthStore } from '@/stores/auth'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -12,20 +12,17 @@ const authStore = useAuthStore()
 
 const email = ref('')
 const password = ref('')
-const passwordConfirmation = ref('')
 const loading = ref(false)
 const globalError = ref('')
 
 const fieldErrors = reactive({
   email: [] as string[],
   password: [] as string[],
-  passwordConfirmation: [] as string[],
 })
 
 function validate(): boolean {
   fieldErrors.email = []
   fieldErrors.password = []
-  fieldErrors.passwordConfirmation = []
 
   if (!email.value) {
     fieldErrors.email.push("L'email est requis.")
@@ -33,23 +30,12 @@ function validate(): boolean {
     fieldErrors.email.push("Le format de l'email est invalide.")
   }
 
+  // Aucune longueur minimale ici : la vérification du mot de passe appartient au serveur.
   if (!password.value) {
     fieldErrors.password.push('Le mot de passe est requis.')
-  } else if (password.value.length < 8) {
-    fieldErrors.password.push('Le mot de passe doit contenir au moins 8 caractères.')
   }
 
-  if (!passwordConfirmation.value) {
-    fieldErrors.passwordConfirmation.push('La vérification du mot de passe est requise.')
-  } else if (passwordConfirmation.value !== password.value) {
-    fieldErrors.passwordConfirmation.push('La vérification ne correspond pas au mot de passe.')
-  }
-
-  return (
-    fieldErrors.email.length === 0 &&
-    fieldErrors.password.length === 0 &&
-    fieldErrors.passwordConfirmation.length === 0
-  )
+  return fieldErrors.email.length === 0 && fieldErrors.password.length === 0
 }
 
 async function onSubmit(): Promise<void> {
@@ -61,13 +47,14 @@ async function onSubmit(): Promise<void> {
 
   loading.value = true
   try {
-    await authStore.register(email.value, password.value, passwordConfirmation.value)
+    await authStore.login(email.value, password.value)
     await router.push('/')
   } catch (error) {
     if (error instanceof RegisterValidationError) {
       fieldErrors.email = error.errors.email ?? []
       fieldErrors.password = error.errors.password ?? []
-      fieldErrors.passwordConfirmation = error.errors.password_confirmation ?? []
+    } else if (error instanceof AuthMessageError) {
+      globalError.value = error.message
     } else {
       globalError.value = 'Une erreur est survenue. Veuillez réessayer plus tard.'
     }
@@ -78,79 +65,52 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div class="register-page">
+  <div class="login-page">
     <AppHeader />
 
-    <main class="register-main">
-      <section class="register-card">
-        <h1 class="register-title">Créer un compte</h1>
+    <main class="login-main">
+      <section class="login-card">
+        <h1 class="login-title">Connexion</h1>
 
-        <form class="register-form" novalidate @submit.prevent="onSubmit">
+        <form class="login-form" novalidate @submit.prevent="onSubmit">
           <div class="form-field">
-            <label for="register-email">Email</label>
+            <label for="login-email">Email</label>
             <input
-              id="register-email"
+              id="login-email"
               v-model="email"
               type="email"
               autocomplete="email"
               placeholder="Saisissez votre email..."
-              :aria-describedby="fieldErrors.email.length > 0 ? 'register-email-error' : undefined"
+              :aria-describedby="fieldErrors.email.length > 0 ? 'login-email-error' : undefined"
             />
-            <p v-if="fieldErrors.email.length > 0" id="register-email-error" class="form-error">
+            <p v-if="fieldErrors.email.length > 0" id="login-email-error" class="form-error">
               {{ fieldErrors.email.join(' ') }}
             </p>
           </div>
 
           <div class="form-field">
-            <label for="register-password">Mot de passe</label>
+            <label for="login-password">Mot de passe</label>
             <input
-              id="register-password"
+              id="login-password"
               v-model="password"
               type="password"
-              autocomplete="new-password"
+              autocomplete="current-password"
               placeholder="Saisissez votre mot de passe..."
               :aria-describedby="
-                fieldErrors.password.length > 0 ? 'register-password-error' : undefined
+                fieldErrors.password.length > 0 ? 'login-password-error' : undefined
               "
             />
-            <p
-              v-if="fieldErrors.password.length > 0"
-              id="register-password-error"
-              class="form-error"
-            >
+            <p v-if="fieldErrors.password.length > 0" id="login-password-error" class="form-error">
               {{ fieldErrors.password.join(' ') }}
             </p>
           </div>
 
-          <div class="form-field">
-            <label for="register-password-confirmation">Verification du mot de passe</label>
-            <input
-              id="register-password-confirmation"
-              v-model="passwordConfirmation"
-              type="password"
-              autocomplete="new-password"
-              placeholder="Saisissez-le à nouveau"
-              :aria-describedby="
-                fieldErrors.passwordConfirmation.length > 0
-                  ? 'register-password-confirmation-error'
-                  : undefined
-              "
-            />
-            <p
-              v-if="fieldErrors.passwordConfirmation.length > 0"
-              id="register-password-confirmation-error"
-              class="form-error"
-            >
-              {{ fieldErrors.passwordConfirmation.join(' ') }}
-            </p>
-          </div>
-
-          <router-link class="register-login-link" to="/login">J'ai déjà un compte</router-link>
+          <router-link class="login-register-link" to="/register">Créer un compte</router-link>
 
           <p v-if="globalError" class="form-error-global" role="alert">{{ globalError }}</p>
 
-          <button class="register-submit" type="submit" :disabled="loading">
-            Créer mon compte
+          <button class="login-submit" type="submit" :disabled="loading">
+            {{ loading ? 'Connexion...' : 'Connexion' }}
           </button>
         </form>
       </section>
@@ -161,21 +121,21 @@ async function onSubmit(): Promise<void> {
 </template>
 
 <style scoped>
-.register-page {
+.login-page {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--ds-gradient-bg);
 }
 
-.register-main {
+.login-main {
   flex: 1;
   display: flex;
   justify-content: center;
   padding: var(--ds-space-lg) var(--ds-space-md);
 }
 
-.register-card {
+.login-card {
   width: 100%;
   background: var(--ds-color-surface);
   border-radius: var(--ds-radius-card);
@@ -183,7 +143,7 @@ async function onSubmit(): Promise<void> {
   padding: var(--ds-space-lg);
 }
 
-.register-title {
+.login-title {
   margin-bottom: var(--ds-space-lg);
   font-family: var(--ds-font-family-heading);
   font-size: var(--ds-font-size-h2);
@@ -193,7 +153,7 @@ async function onSubmit(): Promise<void> {
   text-align: center;
 }
 
-.register-form {
+.login-form {
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-xs);
@@ -252,7 +212,7 @@ async function onSubmit(): Promise<void> {
   font-weight: var(--ds-font-weight-small);
 }
 
-.register-login-link {
+.login-register-link {
   display: block;
   width: 100%;
   margin-top: var(--ds-space-md);
@@ -267,16 +227,16 @@ async function onSubmit(): Promise<void> {
   font-weight: var(--ds-font-weight-input);
 }
 
-.register-login-link:hover {
+.login-register-link:hover {
   background: color-mix(in srgb, var(--ds-color-accent) 8%, transparent);
 }
 
-.register-login-link:focus-visible {
+.login-register-link:focus-visible {
   outline: 2px solid var(--ds-color-accent-border);
   outline-offset: 2px;
 }
 
-.register-submit {
+.login-submit {
   width: 100%;
   border: var(--ds-border-width) solid var(--ds-color-accent-border);
   border-radius: var(--ds-radius-button);
@@ -289,16 +249,16 @@ async function onSubmit(): Promise<void> {
   font-weight: var(--ds-font-weight-input);
 }
 
-.register-submit:hover:not(:disabled) {
+.login-submit:hover:not(:disabled) {
   filter: brightness(0.95);
 }
 
-.register-submit:focus-visible {
+.login-submit:focus-visible {
   outline: 2px solid var(--ds-color-accent-border);
   outline-offset: 2px;
 }
 
-.register-submit:disabled {
+.login-submit:disabled {
   background: var(--ds-color-disabled-bg);
   border-color: var(--ds-color-disabled-text);
   color: var(--ds-color-disabled-text);
@@ -310,11 +270,11 @@ async function onSubmit(): Promise<void> {
 }
 
 @media (min-width: 768px) {
-  .register-main {
+  .login-main {
     align-items: center;
   }
 
-  .register-card {
+  .login-card {
     max-width: 420px;
   }
 
