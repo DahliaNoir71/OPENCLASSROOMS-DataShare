@@ -110,7 +110,8 @@
   --ds-space-md: 16px; /* écart entre champs de formulaire, padding header, padding ligne fichier */
   --ds-space-lg: 24px; /* padding de carte, écart titre → champs */
 
-  --ds-size-control-height: 40px; /* hauteur des inputs / select (fixe sur le select, résultante sur l'input) */
+  --ds-size-control-height: 40px; /* hauteur des inputs / select (hauteur visée, tenue par min-height : voir docs/design-tokens.md) */
+  --ds-size-icon: 16px; /* icônes 16 × 16 (chevron du select « Expiration ») */
 
   /* ==================== Breakpoint ==================== */
   /* Documentaire : valeur de projet (US03), non mesurée depuis Figma (frames Figma en

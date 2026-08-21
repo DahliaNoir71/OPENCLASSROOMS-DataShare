@@ -104,6 +104,17 @@ describe('UploadCard', () => {
     expect(options[select.selectedIndex]!.text()).toBe('Une semaine')
   })
 
+  // Le rognage du libellé se jouait en CSS, hors de portée de jsdom : ce test
+  // garde au moins le chevron de la maquette, qui remplace la flèche native et
+  // dont dépend la réserve horizontale du libellé.
+  it('habille le select avec le chevron de la maquette, décoratif', () => {
+    const wrapper = mountCard()
+
+    const chevron = wrapper.find('.upload-expiry-chevron')
+    expect(chevron.exists()).toBe(true)
+    expect(chevron.attributes('aria-hidden')).toBe('true')
+  })
+
   it('affiche le nom, la taille lisible et le bouton « Changer » une fois le fichier choisi', async () => {
     const wrapper = mountCard()
 

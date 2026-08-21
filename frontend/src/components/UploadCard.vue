@@ -249,18 +249,35 @@ onBeforeUnmount(() => {
 
       <div class="form-field">
         <label for="upload-expiry">Expiration</label>
-        <select
-          id="upload-expiry"
-          v-model.number="expiresInDays"
-          class="upload-expiry-select"
-          :aria-describedby="
-            fieldErrors.expires_in_days.length > 0 ? 'upload-expiry-error' : undefined
-          "
-        >
-          <option v-for="option in EXPIRY_OPTIONS" :key="option.days" :value="option.days">
-            {{ option.label }}
-          </option>
-        </select>
+
+        <div class="upload-expiry-control">
+          <select
+            id="upload-expiry"
+            v-model.number="expiresInDays"
+            class="upload-expiry-select"
+            :aria-describedby="
+              fieldErrors.expires_in_days.length > 0 ? 'upload-expiry-error' : undefined
+            "
+          >
+            <option v-for="option in EXPIRY_OPTIONS" :key="option.days" :value="option.days">
+              {{ option.label }}
+            </option>
+          </select>
+
+          <svg
+            class="upload-expiry-chevron"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 6l4 4 4-4" />
+          </svg>
+        </div>
+
         <p
           v-if="fieldErrors.expires_in_days.length > 0"
           id="upload-expiry-error"
@@ -336,8 +353,44 @@ onBeforeUnmount(() => {
   font-weight: var(--ds-font-weight-input);
 }
 
+/* Maquette : boîte de 40px de haut, libellé centré (`align-items: center` sur
+   le cadre Figma, le padding de 12px n'y positionne rien). Le trait Figma ne
+   consomme pas de hauteur, la bordure CSS si : avec une hauteur fixée à 40px,
+   il ne restait que 40 - 2 × 12px de padding - 2 × 1px de bordure = 14px de
+   boîte de contenu pour une line-height de 16px, et le libellé était rogné.
+   La hauteur de la maquette est donc tenue par `min-height`, le centrage
+   vertical par le select lui-même, sans padding vertical qui puisse rogner. */
 .form-field select {
-  height: var(--ds-size-control-height);
+  min-height: var(--ds-size-control-height);
+  padding-block: 0;
+  align-content: center;
+}
+
+/* Le chevron de la maquette (icône 16 × 16, nœud `#565:15194`) remplace la
+   flèche native : la maquette n'en prévoit pas, et la largeur qu'elle réserve
+   varie d'un navigateur à l'autre — donc la place laissée au libellé aussi. */
+.upload-expiry-control {
+  position: relative;
+  display: grid;
+}
+
+.form-field .upload-expiry-select {
+  appearance: none;
+  /* Réserve du chevron, aux valeurs de la maquette : 12px de padding droit,
+     8px de gouttière, icône de 16px. */
+  padding-right: calc(var(--ds-space-sm) + var(--ds-space-xs) + var(--ds-size-icon));
+  text-overflow: ellipsis;
+}
+
+.upload-expiry-chevron {
+  position: absolute;
+  top: 50%;
+  right: var(--ds-space-sm);
+  translate: 0 -50%;
+  width: var(--ds-size-icon);
+  height: var(--ds-size-icon);
+  color: var(--ds-color-text-secondary);
+  pointer-events: none;
 }
 
 .form-field input::placeholder {
