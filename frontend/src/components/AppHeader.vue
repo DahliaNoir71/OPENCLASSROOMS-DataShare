@@ -52,10 +52,10 @@ async function handleLogout(): Promise<void> {
   align-items: center;
   justify-content: center;
   padding: var(--ds-space-sm);
-  border: var(--ds-border-width) solid var(--ds-color-accent-border-soft);
+  border: var(--ds-border-width) solid var(--ds-color-primary);
   border-radius: var(--ds-radius-button);
   background: transparent;
-  color: var(--ds-color-accent);
+  color: var(--ds-color-primary);
   font-family: var(--ds-font-family-heading);
   font-size: var(--ds-font-size-input);
   line-height: var(--ds-line-height-input);
@@ -63,7 +63,8 @@ async function handleLogout(): Promise<void> {
 }
 
 .app-header-logout:hover {
-  background: color-mix(in srgb, var(--ds-color-accent) 8%, transparent);
+  background: var(--ds-color-primary);
+  color: var(--ds-color-primary-text);
 }
 
 .app-header-logout:focus-visible {
