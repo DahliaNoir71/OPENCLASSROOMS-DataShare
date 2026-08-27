@@ -212,6 +212,12 @@ inventée) : à faire trancher par le designer, pas de token créé pour ces cas
   ~3,3:1, à la limite du seuil UI/large text (3:1) et sous le seuil texte
   normal (4,5:1). Valeur de maquette non modifiée ici — à faire trancher par
   le designer.
+- **Contraste `--ds-color-warning-text` (#AA642B) sur `--ds-color-warning-bg`
+  (#FFF5ED)** (callout Warning/Alert, écran de téléchargement, US02) : ratio
+  approximatif ~4,3:1, sous le seuil WCAG AA texte normal (4,5:1) à 14px — les
+  deux autres callouts passent (Info ~8,6:1, Error ~5,9:1). Valeur de maquette
+  non modifiée ici — à faire trancher par le designer, au même titre que les
+  deux écarts de contraste ci-dessus.
 
 ## Dérivations hors maquette (lot CSS final)
 
@@ -268,3 +274,48 @@ Dérivations validées (arbitrage du 2026-08-14) :
   (12 + 8 + 16 = 36px de `padding-right`) et non par la largeur — variable
   selon le navigateur — de la flèche native. Nouveau token `--ds-size-icon`
   (16px) pour la taille de l'icône.
+
+## Dérivations hors maquette (écran de téléchargement, US02)
+
+La maquette « Téléchargement » (section Figma `#56:740`) précède US06 : elle
+ne montre que quatre états (protégé mot de passe vide/saisi, non protégé,
+expiré) et son texte de callout n'est qu'un exemple de la propriété `Label`
+du composant. Principe retenu pour ce lot, et pour les suivants : **les
+spécifications (contrat d'API, US) priment sur la maquette ; tout écart avec
+la maquette est assumé et consigné ici, jamais silencieux.**
+
+- **Libellés des callouts d'erreur (404/410/429)** : la maquette ne donne
+  qu'un exemple de texte pour le 410 (« Ce fichier n'est plus disponible en
+  téléchargement car il a expiré. ») et rien pour le 404, absent de la
+  maquette (antérieure à US06). **Retenu** : le message renvoyé par le
+  serveur (`docs/openapi.yaml`, `Message`), conformément à la règle déjà
+  posée dans `docs/architecture.md` — « le front n'invente aucun libellé
+  d'erreur métier ». Fidélité maquette conservée sur le visuel seul : couleurs
+  et icône `Alert octagon` du Callout `Type=Error`, disparition du bloc
+  fichier et du bouton.
+- **Bandeau de succès après un téléchargement** : absent de la maquette,
+  aucun quatrième type de callout n'existe dans le component set
+  `Callout Component` (`#56:1078`). **Retenu** : réutilisation du type `Info`
+  déjà défini, texte « Le téléchargement a démarré. », bouton neutralisé
+  (`disabled`) — plutôt qu'un nouveau jeton de couleur non échantillonné.
+- **Icône du bloc fichier** : la maquette montre `file-image-line` parce que
+  son exemple est un `.jpg`. Indexer une icône sur `mime_type` serait un
+  contenu inventé — le type est de toute façon désormais porté par un libellé
+  texte (voir ci-dessous). **Retenu** : icône de fichier générique, SVG inline
+  `currentColor`, `aria-hidden="true"`, même convention que l'icône du bouton
+  d'accueil et le chevron du select.
+- **Type de fichier affiché en texte** (`utils/formatMimeType.ts`) : US02
+  exige que le type soit visible ; la maquette ne le porte que par l'icône
+  ci-dessus. **Retenu** : libellé lisible à côté de la taille sur la même
+  ligne `Small` (`PDF · 2,6 Mo`), sans toucher au gabarit de la maquette.
+- **Bouton « Télécharger » désactivé tant que le mot de passe est vide** :
+  conforme à la maquette (`Size=Medium, State=Disabled, Variant=Primary`,
+  frame `#56:784`) et au précédent `UploadCard` (`:disabled="!canSubmit"`).
+  Un bouton `disabled` n'est ni focusable ni annoncé par un lecteur d'écran —
+  écart assumé, à revoir si la maquette du designer traite un jour ce cas
+  autrement (validation au clic plutôt que désactivation, comme le fait déjà
+  `LoginView`).
+- **Icônes des callouts (Info / Alert triangle / Alert octagon)** : mêmes
+  tracés que ceux dessinés dans Figma (component sets `#56:977`, `#56:1147`,
+  `#56:1161`), transcrits en SVG inline `currentColor` plutôt qu'exportés en
+  fichiers séparés — même convention que toutes les autres icônes du projet.

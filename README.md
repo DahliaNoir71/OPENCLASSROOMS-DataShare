@@ -39,7 +39,7 @@ suppression manuelle (US06). Reste la purge planifiée (US10).
 | Authentification JWT | ✅ `php-open-source-saver/jwt-auth` installé et configuré |
 | Contrat d'API | ✅ 9 opérations sur 9 implémentées — les quatre d'authentification, le dépôt de fichier (US01), le parcours de téléchargement (US02), l'historique (US05) et la suppression manuelle (US06) |
 | Modèle de données métier | ✅ table `files` migrée et exploitée |
-| Écrans de la SPA | 🟡 accueil, inscription, connexion, dépôt et historique (« Mon espace ») en place ; écran de partage à écrire |
+| Écrans de la SPA | ✅ accueil, inscription, connexion, dépôt, historique (« Mon espace ») et écran de partage (`/l/:token`) en place |
 
 ## Stack technique
 
@@ -416,8 +416,11 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       le dépôt de fichier (US01), le parcours de téléchargement (US02),
       l'historique (US05) et la suppression manuelle (US06)
 - [ ] Écrire le scheduler de purge (US10)
-- [ ] Construire l'écran de partage de la SPA d'après les maquettes ; accueil,
-      inscription, connexion, dépôt et historique (« Mon espace ») sont en place
+- [x] Construire l'écran de partage de la SPA d'après les maquettes (US02) →
+      `/l/:token`, route publique sans garde
+- [ ] Ajouter une route de repli 404 au routeur : un chemin totalement
+      étranger (hors `/l/:token`, qui capte déjà un token invalide) rend
+      aujourd'hui une page vide
 - [x] Supprimer la chaîne de build front du backend, devenue morte :
       `package.json`, `.npmrc`, `vite.config.js`, `resources/` et la route `/`
       de `routes/web.php`
