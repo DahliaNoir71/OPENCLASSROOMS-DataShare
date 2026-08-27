@@ -141,12 +141,7 @@ onMounted(() => {
               </div>
 
               <span v-if="file.expired" class="file-row-expired">Expiré</span>
-              <button
-                v-else
-                type="button"
-                class="file-row-copy-button"
-                @click="copyLink(file)"
-              >
+              <button v-else type="button" class="file-row-copy-button" @click="copyLink(file)">
                 {{ copiedId === file.id ? 'Lien copié !' : 'Copier le lien' }}
               </button>
             </li>
