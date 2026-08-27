@@ -224,4 +224,87 @@ describe('MyFilesView', () => {
 
     expect(pushSpy).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/mon-espace' } })
   })
+
+  describe('suppression', () => {
+    it('demande confirmation avant de supprimer et annule si elle est refusée', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile()])))
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('.file-row-delete-button').trigger('click')
+      await flushPromises()
+
+      expect(confirmSpy).toHaveBeenCalledWith(
+        'Supprimer définitivement « rapport.pdf » ? Cette action est irréversible.',
+      )
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('supprime le fichier confirmé puis rafraîchit la liste', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+      fetchMock.mockResolvedValueOnce(jsonResponse(204, {}))
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([])))
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('.file-row-delete-button').trigger('click')
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(fetchMock.mock.calls[1]![0]).toBe('/api/files/1')
+      expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'DELETE' })
+      expect(fetchMock.mock.calls[2]![0]).toBe('/api/files?status=all&page=1')
+      expect(wrapper.text()).toContain('Aucun fichier à afficher.')
+    })
+
+    it('un 404 à la suppression (liste périmée) déclenche un simple rechargement, pas une erreur', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+      fetchMock.mockResolvedValueOnce(jsonResponse(404, { message: 'Ce fichier est introuvable.' }))
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([])))
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('.file-row-delete-button').trigger('click')
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(wrapper.find('.form-error-global').exists()).toBe(false)
+      expect(wrapper.text()).toContain('Aucun fichier à afficher.')
+    })
+
+    it('affiche le message du serveur si la suppression échoue sur un 429', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+      fetchMock.mockResolvedValueOnce(jsonResponse(429, { message: 'Trop de requêtes.' }))
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('.file-row-delete-button').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.form-error-global').text()).toBe('Trop de requêtes.')
+    })
+
+    it('redirige vers la connexion si la session est révoquée pendant la suppression', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+      fetchMock.mockResolvedValueOnce(jsonResponse(401, { message: 'Unauthenticated.' }))
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      const pushSpy = vi.spyOn(router, 'push')
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('.file-row-delete-button').trigger('click')
+      await flushPromises()
+
+      expect(pushSpy).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/mon-espace' } })
+    })
+  })
 })
