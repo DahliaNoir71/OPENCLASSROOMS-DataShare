@@ -7,6 +7,8 @@ import { useAuthStore } from '@/stores/auth'
 import {
   ListMessageError,
   ListUnauthenticatedError,
+  RemoveMessageError,
+  RemoveUnauthenticatedError,
   useFilesStore,
   type FilesPage,
   type FileStatus,
@@ -38,6 +40,7 @@ const loading = ref(false)
 const globalError = ref('')
 const filesPage = ref<FilesPage | null>(null)
 const copiedId = ref<number | null>(null)
+const removingId = ref<number | null>(null)
 
 let copyResetTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -87,6 +90,35 @@ async function copyLink(file: FilesPage['data'][number]): Promise<void> {
   copyResetTimer = setTimeout(() => {
     copiedId.value = null
   }, COPY_FEEDBACK_MS)
+}
+
+async function removeFile(file: FilesPage['data'][number]): Promise<void> {
+  const confirmed = window.confirm(
+    `Supprimer définitivement « ${file.original_name} » ? Cette action est irréversible.`,
+  )
+  if (!confirmed) {
+    return
+  }
+
+  removingId.value = file.id
+  globalError.value = ''
+
+  try {
+    await filesStore.remove(file.id)
+    await fetchPage()
+  } catch (error) {
+    if (error instanceof RemoveUnauthenticatedError) {
+      await router.push({ path: '/login', query: { redirect: route.fullPath } })
+    } else if (error instanceof RemoveMessageError) {
+      globalError.value = error.message
+    } else {
+      // Un 404 signale une liste périmée (fichier déjà supprimé ailleurs),
+      // pas un problème de droits : on se contente de la rafraîchir.
+      await fetchPage()
+    }
+  } finally {
+    removingId.value = null
+  }
 }
 
 onMounted(() => {
@@ -140,10 +172,21 @@ onMounted(() => {
                 </span>
               </div>
 
-              <span v-if="file.expired" class="file-row-expired">Expiré</span>
-              <button v-else type="button" class="file-row-copy-button" @click="copyLink(file)">
-                {{ copiedId === file.id ? 'Lien copié !' : 'Copier le lien' }}
-              </button>
+              <div class="file-row-actions">
+                <span v-if="file.expired" class="file-row-expired">Expiré</span>
+                <button v-else type="button" class="file-row-copy-button" @click="copyLink(file)">
+                  {{ copiedId === file.id ? 'Lien copié !' : 'Copier le lien' }}
+                </button>
+
+                <button
+                  type="button"
+                  class="file-row-delete-button"
+                  :disabled="removingId === file.id"
+                  @click="removeFile(file)"
+                >
+                  Supprimer
+                </button>
+              </div>
             </li>
           </ul>
 
@@ -296,7 +339,15 @@ onMounted(() => {
   color: var(--ds-color-text-expired);
 }
 
-.file-row-copy-button {
+.file-row-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-xs);
+}
+
+.file-row-copy-button,
+.file-row-delete-button {
   flex-shrink: 0;
   border: var(--ds-border-width) solid var(--ds-color-accent-border-soft);
   border-radius: var(--ds-radius-button);
@@ -309,11 +360,18 @@ onMounted(() => {
   font-weight: var(--ds-font-weight-input);
 }
 
-.file-row-copy-button:hover {
+.file-row-copy-button:hover,
+.file-row-delete-button:hover {
   background: color-mix(in srgb, var(--ds-color-accent) 8%, transparent);
 }
 
+.file-row-delete-button:disabled {
+  color: var(--ds-color-disabled-text);
+  border-color: var(--ds-color-disabled-text);
+}
+
 .file-row-copy-button:focus-visible,
+.file-row-delete-button:focus-visible,
 .status-switch-option:focus-visible,
 .pagination-button:focus-visible {
   outline: 2px solid var(--ds-color-accent-border);

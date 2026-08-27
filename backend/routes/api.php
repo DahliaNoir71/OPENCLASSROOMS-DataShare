@@ -30,6 +30,7 @@ Route::prefix('auth')->middleware('auth:api')->group(function () {
 Route::prefix('files')->middleware('auth:api')->group(function () {
     Route::get('/', [FileController::class, 'index']);
     Route::post('/', [FileController::class, 'store'])->middleware('throttle:uploads');
+    Route::delete('/{id}', [FileController::class, 'destroy']);
 });
 
 // Ouvertes à tous comme register et login, mais la menace n'est pas la même :

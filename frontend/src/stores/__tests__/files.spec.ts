@@ -6,6 +6,9 @@ import {
   ListMessageError,
   ListUnauthenticatedError,
   ListValidationError,
+  RemoveMessageError,
+  RemoveNotFoundError,
+  RemoveUnauthenticatedError,
   UploadMessageError,
   UploadUnauthenticatedError,
   UploadValidationError,
@@ -235,6 +238,67 @@ describe('useFilesStore', () => {
         .catch((caught: unknown) => caught)
 
       expect(error).not.toBeInstanceOf(ListValidationError)
+      expect((error as Error).message).toBe('Réponse inattendue du serveur (statut 500).')
+    })
+  })
+
+  describe('remove', () => {
+    it('envoie un DELETE authentifié sur /api/files/{id}', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(204, {}))
+
+      await useFilesStore().remove(1)
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock.mock.calls[0]![0]).toBe('/api/files/1')
+      expect(lastRequestInit().method).toBe('DELETE')
+      expect(lastRequestInit().headers).toEqual({
+        Accept: 'application/json',
+        Authorization: 'Bearer jwt-test',
+      })
+    })
+
+    it("ne lève rien sur un 204 sans corps", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(204, {}))
+
+      await expect(useFilesStore().remove(1)).resolves.toBeUndefined()
+    })
+
+    it('purge la session sur un 401', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(401, { message: 'Unauthenticated.' }))
+      const authStore = useAuthStore()
+
+      await expect(useFilesStore().remove(1)).rejects.toBeInstanceOf(RemoveUnauthenticatedError)
+
+      expect(authStore.token).toBeNull()
+      expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
+    })
+
+    it('remonte un RemoveNotFoundError sur un 404 (liste périmée)', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(404, { message: 'Ce fichier est introuvable.' }))
+
+      const error = await useFilesStore()
+        .remove(1)
+        .catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(RemoveNotFoundError)
+      expect((error as Error).message).toBe('Ce fichier est introuvable.')
+    })
+
+    it('remonte le message du serveur sur un 429', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(429, { message: 'Trop de requêtes.' }))
+
+      await expect(useFilesStore().remove(1)).rejects.toBeInstanceOf(RemoveMessageError)
+      await expect(useFilesStore().remove(1)).rejects.toThrow('Trop de requêtes.')
+    })
+
+    it('signale un statut inattendu sans le confondre avec un 404', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(500, {}))
+
+      const error = await useFilesStore()
+        .remove(1)
+        .catch((caught: unknown) => caught)
+
+      expect(error).not.toBeInstanceOf(RemoveNotFoundError)
       expect((error as Error).message).toBe('Réponse inattendue du serveur (statut 500).')
     })
   })

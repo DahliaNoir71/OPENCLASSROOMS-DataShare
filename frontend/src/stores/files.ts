@@ -120,6 +120,34 @@ export class ListUnauthenticatedError extends Error {
   }
 }
 
+/** 429 : un message global, sans champ associé. */
+export class RemoveMessageError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RemoveMessageError'
+  }
+}
+
+/** 401 : la session a déjà été purgée, il reste à rediriger vers la connexion. */
+export class RemoveUnauthenticatedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RemoveUnauthenticatedError'
+  }
+}
+
+/**
+ * 404 : identifiant inexistant ou fichier d'un autre compte (docs/openapi.yaml)
+ * — les deux répondent le même 404, aucun 403 n'existe. Côté SPA, le seul cas
+ * réel est une liste périmée : le fichier a déjà été supprimé ailleurs.
+ */
+export class RemoveNotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RemoveNotFoundError'
+  }
+}
+
 /**
  * Un 413 peut être produit avant que l'application n'ait la main (limite du
  * serveur web), auquel cas le corps n'est pas du JSON : la lecture ne doit pas
@@ -230,5 +258,38 @@ export const useFilesStore = defineStore('files', () => {
     throw new Error(`Réponse inattendue du serveur (statut ${response.status}).`)
   }
 
-  return { upload, list }
+  async function remove(id: number): Promise<void> {
+    const response = await fetch(`/api/files/${id}`, {
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${authStore.token ?? ''}`,
+      },
+    })
+
+    if (response.status === 204) {
+      return
+    }
+
+    if (response.status === 401) {
+      authStore.clearSession()
+      throw new RemoveUnauthenticatedError('Session expirée. Connecte-toi de nouveau.')
+    }
+
+    if (response.status === 404) {
+      const data = await readJson<MessageResponse>(response)
+      throw new RemoveNotFoundError(data?.message ?? 'Ce fichier est introuvable.')
+    }
+
+    if (response.status === 429) {
+      const data = await readJson<MessageResponse>(response)
+      throw new RemoveMessageError(
+        data?.message ?? 'Trop de requêtes. Réessaie dans quelques instants.',
+      )
+    }
+
+    throw new Error(`Réponse inattendue du serveur (statut ${response.status}).`)
+  }
+
+  return { upload, list, remove }
 })

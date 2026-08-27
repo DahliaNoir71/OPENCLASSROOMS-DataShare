@@ -107,6 +107,26 @@ class FileStorageService
     }
 
     /**
+     * Ordre invariant : le physique d'abord, la ligne ensuite — le même sens
+     * que la purge (US10), pour la même raison. Aucune transaction : une
+     * transaction SQL n'annule pas une suppression de fichier déjà exécutée,
+     * et inverser l'ordre laisserait des octets orphelins invisibles à la
+     * purge en cas d'échec entre les deux étapes.
+     */
+    public function delete(File $file): void
+    {
+        $disk = Storage::disk((string) config('datashare.uploads.disk'));
+
+        if (! $disk->fileExists($file->stored_path)) {
+            Log::warning('File content already missing', ['file_id' => $file->id]);
+        } else {
+            $disk->delete($file->stored_path);
+        }
+
+        $file->delete();
+    }
+
+    /**
      * Boucle bornée à 3 tentatives : elle ne sert qu'à ne jamais faire
      * remonter une violation de contrainte d'unicité au client. La garantie
      * réelle reste l'index unique sur la colonne.

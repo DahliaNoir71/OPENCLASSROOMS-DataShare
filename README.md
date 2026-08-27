@@ -27,8 +27,8 @@ on les attend. Le présent README ne traite que de la mise en route.
 La conception fonctionnelle et technique est arrêtée. L'implémentation du
 domaine métier a démarré par l'authentification (inscription US03, connexion
 US04), puis a couvert le dépôt d'un fichier (US01), le parcours de
-téléchargement par lien public (US02) et l'historique des fichiers (US05).
-Restent la suppression manuelle (US06) et la purge planifiée (US10).
+téléchargement par lien public (US02), l'historique des fichiers (US05) et la
+suppression manuelle (US06). Reste la purge planifiée (US10).
 
 | Brique | État |
 | --- | --- |
@@ -37,7 +37,7 @@ Restent la suppression manuelle (US06) et la purge planifiée (US10).
 | Frontend Vue 3 + TypeScript (`frontend/`) | ✅ initialisé |
 | Architecture technique | ✅ documentée |
 | Authentification JWT | ✅ `php-open-source-saver/jwt-auth` installé et configuré |
-| Contrat d'API | 🟡 8 opérations sur 9 implémentées — les quatre d'authentification, le dépôt de fichier (US01), le parcours de téléchargement (US02) et l'historique (US05) |
+| Contrat d'API | ✅ 9 opérations sur 9 implémentées — les quatre d'authentification, le dépôt de fichier (US01), le parcours de téléchargement (US02), l'historique (US05) et la suppression manuelle (US06) |
 | Modèle de données métier | ✅ table `files` migrée et exploitée |
 | Écrans de la SPA | 🟡 accueil, inscription, connexion, dépôt et historique (« Mon espace ») en place ; écran de partage à écrire |
 
@@ -199,6 +199,7 @@ contrat d'API). Routes réellement en place à ce stade, cf.
 | `POST /api/auth/logout` | Invalidation du jeton courant |
 | `GET /api/files` | Historique des fichiers de l'utilisateur (US05) — pagination, filtre `status` |
 | `POST /api/files` | Dépôt d'un fichier authentifié (US01) — renvoie ses métadonnées et son lien de téléchargement |
+| `DELETE /api/files/{id}` | Suppression manuelle d'un fichier de l'utilisateur (US06) — `204` sans corps, irréversible |
 | `GET /api/links/{token}` | Métadonnées publiques d'un lien (US02) — nom, taille, type, expiration, protégé ou non |
 | `POST /api/links/{token}/download` | Téléchargement du fichier (US02, US09) — mot de passe dans le corps, jamais dans l'URL |
 
@@ -209,8 +210,9 @@ exposée : [`routes/web.php`](backend/routes/web.php) est vide.
 Toutes les routes `/api` sont plafonnées à 60 requêtes par minute (par
 utilisateur authentifié, sinon par IP). `register` et `login`, ouvertes à tous,
 sont en plus plafonnées à 5 par minute et par IP — ce sont celles qu'une attaque
-par bourrage d'identifiants viserait ; `me`, `logout` et l'historique
-(`GET /files`, US05), derrière un jeton, ne relèvent que du plafond général.
+par bourrage d'identifiants viserait ; `me`, `logout`, l'historique
+(`GET /files`, US05) et la suppression (`DELETE /files/{id}`, US06), derrière
+un jeton, ne relèvent que du plafond général.
 `POST /files` (US01) a son propre plafond, 10
 par minute et par utilisateur : un ceiling qui n'a rien à voir avec celui d'un
 simple appel JSON, chaque appel pouvant transporter jusqu'à 1 Go.
@@ -410,10 +412,10 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [x] Écrire la migration du modèle métier : table `files` (US01)
 - [ ] Aligner `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
       `remember_token` restent livrés par le squelette, absents du modèle)
-- [ ] Implémenter la dernière opération du contrat d'API — la suppression
-      manuelle (US06) — et le scheduler de purge (US10) ; les 4 opérations
-      d'authentification, le dépôt de fichier (US01), le parcours de
-      téléchargement (US02) et l'historique (US05) sont faits
+- [x] Implémenter les 9 opérations du contrat d'API — les 4 d'authentification,
+      le dépôt de fichier (US01), le parcours de téléchargement (US02),
+      l'historique (US05) et la suppression manuelle (US06)
+- [ ] Écrire le scheduler de purge (US10)
 - [ ] Construire l'écran de partage de la SPA d'après les maquettes ; accueil,
       inscription, connexion, dépôt et historique (« Mon espace ») sont en place
 - [x] Supprimer la chaîne de build front du backend, devenue morte :
@@ -423,10 +425,10 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       encore qu'aucun paquet JWT n'était installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
       sans laquelle aucune purge n'a lieu
-- [ ] Compléter la piste d'audit au fil des routes restantes (`File deleted`,
-      `Expired files purged`) — les événements d'authentification,
-      `File uploaded` (US01) et les trois du téléchargement (US02) sont en
-      place, la convention est dans
+- [ ] Compléter la piste d'audit avec `Expired files purged` — les événements
+      d'authentification, `File uploaded` (US01), les trois du téléchargement
+      (US02) et les trois de la suppression manuelle (US06) sont en place, la
+      convention est dans
       [docs/architecture.md](docs/architecture.md#la-piste-daudit)
 - [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=info` — et non `warning`,
       qui ferait taire la piste d'audit —, canal `daily` ou `stderr`, et
