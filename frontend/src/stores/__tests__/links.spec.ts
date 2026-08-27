@@ -3,7 +3,6 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import {
   LinkGoneError,
-  LinkMessageError,
   LinkNotFoundError,
   LinkPasswordError,
   LinkValidationError,

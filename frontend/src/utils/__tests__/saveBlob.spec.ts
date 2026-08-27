@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { saveBlob } from '../saveBlob'
 
 describe('saveBlob', () => {
-  const createObjectURLMock = vi.fn(() => 'blob:mock-url')
-  const revokeObjectURLMock = vi.fn()
+  const createObjectURLMock = vi.fn<() => string>(() => 'blob:mock-url')
+  const revokeObjectURLMock = vi.fn<(url: string) => void>()
 
   beforeEach(() => {
     createObjectURLMock.mockClear()
