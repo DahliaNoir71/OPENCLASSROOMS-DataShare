@@ -160,6 +160,13 @@ class DeleteFileTest extends TestCase
         $this->assertDatabaseHas('files', ['id' => $file->id]);
     }
 
+    /**
+     * La colonne `id` est un `bigint` : sur PostgreSQL, comparer un `bigint`
+     * à une chaîne qui n'en est pas une lève une erreur SQL avant même
+     * d'atteindre le contrôleur (contrairement à SQLite, dont le typage
+     * dynamique ne trouve simplement aucune ligne et masquait donc ce bogue
+     * en local). Le contrôleur garde le contrat quel que soit le moteur.
+     */
     public function test_a_non_numeric_id_returns_404(): void
     {
         $token = $this->login($this->user());
@@ -170,12 +177,13 @@ class DeleteFileTest extends TestCase
     }
 
     /**
-     * Verrou du contrat A2 (docs/architecture.md) : un identifiant inexistant
-     * et le fichier d'un autre compte doivent être strictement
-     * indistinguables pour l'appelant, corps compris — c'est la comparaison
-     * de corps, et non la construction interne, qui tient cette garantie.
+     * Verrou du contrat A2 (docs/architecture.md) : un identifiant
+     * inexistant, non numérique, ou le fichier d'un autre compte doivent
+     * être strictement indistinguables pour l'appelant, corps compris —
+     * c'est la comparaison de corps, et non la construction interne, qui
+     * tient cette garantie (cf. le docblock de FileNotFoundException).
      */
-    public function test_an_unknown_id_and_another_users_file_return_the_same_body(): void
+    public function test_an_unknown_id_a_non_numeric_id_and_another_users_file_return_the_same_body(): void
     {
         $owner = $this->user();
         $other = $this->user();
@@ -183,9 +191,11 @@ class DeleteFileTest extends TestCase
         $file = File::factory()->for($owner)->create();
 
         $unknownResponse = $this->withToken($token)->deleteJson($this->url(999_999));
+        $nonNumericResponse = $this->withToken($token)->deleteJson($this->url('abc'));
         $othersFileResponse = $this->withToken($token)->deleteJson($this->url($file->id));
 
         $unknownResponse->assertExactJson(['message' => self::NOT_FOUND]);
+        $nonNumericResponse->assertExactJson(['message' => self::NOT_FOUND]);
         $othersFileResponse->assertExactJson(['message' => self::NOT_FOUND]);
     }
 

@@ -70,16 +70,23 @@ class FileController extends Controller
      * que le model binding de route : `File::find($id)` distingue
      * délibérément « ligne absente » de « ligne d'un autre compte » en
      * interne, pour journaliser le second cas, mais les deux ressortent par
-     * le même `FileNotFoundException` — un identifiant non numérique ne
-     * matche aucune ligne et suit le même chemin. Le model binding
-     * produirait une `ModelNotFoundException` au message anglais nommant le
-     * modèle, que ce contrôleur veut précisément éviter.
+     * le même `FileNotFoundException` — un identifiant non numérique suit le
+     * même chemin. Le model binding produirait une `ModelNotFoundException`
+     * au message anglais nommant le modèle, que ce contrôleur veut
+     * précisément éviter.
+     *
+     * `ctype_digit` avant l'appel à `find()` : la colonne `id` est un
+     * `bigint`, et PostgreSQL refuse de comparer un `bigint` à une chaîne
+     * qui n'en est pas un — contrairement à SQLite, dont le typage dynamique
+     * ne trouve simplement aucune ligne. Sans ce garde-fou, un identifiant
+     * comme `abc` levait une `QueryException` (500) au lieu du `404` que ce
+     * contrôleur garantit pour tout identifiant qui ne désigne aucune ligne.
      *
      * @throws FileNotFoundException
      */
     public function destroy(Request $request, int|string $id, FileStorageService $files): Response
     {
-        $file = File::find($id);
+        $file = ctype_digit((string) $id) ? File::find($id) : null;
 
         if ($file === null) {
             throw new FileNotFoundException;
