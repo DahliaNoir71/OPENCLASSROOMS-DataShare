@@ -475,6 +475,21 @@ répond que si le routage `/api` fonctionne.
 - **bcrypt pour les deux usages de mot de passe** : algorithme à coût
   paramétrable, hachage natif de Laravel, et aucun besoin de déchiffrement
   (comptes comme partages ne font que vérifier).
+- **Un fichier expiré reste dans l'historique** (US05) : `expires_at < now()`
+  rend un lien inaccessible immédiatement, mais la ligne de métadonnées, elle,
+  ne disparaît qu'à un événement explicite — la suppression manuelle (US06),
+  immédiate, ou la purge quotidienne (US10), différée. Entre l'échéance et
+  l'un de ces deux événements, `GET /api/files` continue de lister la ligne,
+  avec `expired: true`. C'est le même principe que pour le lien public : l'état
+  s'évalue à l'instant de la requête, jamais par une colonne qui se figerait.
+- **`GET /api/files` répond `status=all` par défaut** (US05) — écart assumé
+  avec la lettre d'US06, qui énonce « seuls les fichiers non expirés sont
+  affichés par défaut ». Deux raisons à ce choix : la stabilité du contrat,
+  un appel sans paramètre restant le plus complet et les filtres purement
+  additifs, et l'alignement sur le switch « Tous / Actifs / Expiré » de la
+  maquette, qui s'ouvre sur son premier segment. Le comportement que décrit
+  US06 reste atteignable côté client par `?status=active`, sans qu'aucune
+  information ne soit perdue à l'API.
 
 ## Ce que garantit — et ne garantit pas — le scheduler
 
@@ -509,16 +524,16 @@ la rotation des journaux, le niveau de log de production et le choix du store de
 cache, tous pilotés par variables d'environnement.
 
 Ce document décrit l'architecture cible, celle du contrat d'API. À ce stade,
-sept opérations sont implémentées : les quatre d'authentification —
+huit opérations sur neuf sont implémentées : les quatre d'authentification —
 `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`,
-`POST /api/auth/logout` —, le dépôt de fichier `POST /api/files` (US01), et les
+`POST /api/auth/logout` —, le dépôt de fichier `POST /api/files` (US01), les
 deux du parcours de téléchargement, `GET /api/links/{token}` et
-`POST /api/links/{token}/download` (US02). Le diagramme de séquence plus haut
-est donc devenu un état des lieux.
+`POST /api/links/{token}/download` (US02), et l'historique de l'utilisateur,
+`GET /api/files` (US05). Le diagramme de séquence plus haut est donc devenu un
+état des lieux.
 
 Sont en revanche en place et opérants, parce qu'ils ne dépendent d'aucune route
 en particulier : les quatre limiteurs de débit, le middleware `NoStore` sur tout
 le groupe `api`, la journalisation des dépassements de quota et le contexte
-d'exception. Ce qui reste attaché à une opération non écrite — l'historique
-(US05), la suppression manuelle (US06) et le rapport de purge (US10) —
-arrivera avec elle.
+d'exception. Ce qui reste attaché à une opération non écrite — la suppression
+manuelle (US06) et le rapport de purge (US10) — arrivera avec elle.
