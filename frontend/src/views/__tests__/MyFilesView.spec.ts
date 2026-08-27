@@ -145,6 +145,22 @@ describe('MyFilesView', () => {
     expect(wrapper.find('.file-row-copy-button').text()).toBe('Lien copié !')
   })
 
+  it('affiche un message quand la copie échoue, sans bloquer les autres lignes', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile()])))
+    writeTextMock.mockRejectedValue(new Error('denied'))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('.file-row-copy-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.file-row-copy-error').text()).toBe(
+      'La copie a échoué, copie le lien manuellement.',
+    )
+    expect(wrapper.find('.file-row-copy-button').text()).toBe('Copier le lien')
+  })
+
   it('affiche « Expiré » sans bouton de copie pour un fichier expiré', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile({ id: 2, expired: true })])))
 
@@ -213,6 +229,24 @@ describe('MyFilesView', () => {
     await flushPromises()
 
     expect(wrapper.find('.form-error-global').text()).toBe('Trop de requêtes.')
+  })
+
+  it('retombe sur les valeurs par défaut du filtre et affiche un message sur un 422', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(422, {
+        message: 'Le filtre demandé est invalide.',
+        errors: { status: ['Le filtre demandé est invalide.'] },
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1]![0]).toBe('/api/files?status=all&page=1')
+    expect(wrapper.find('.form-error-global').text()).toBe('Le filtre demandé est invalide.')
+    expect(wrapper.find('.file-row-name').text()).toBe('rapport.pdf')
   })
 
   it('redirige vers la connexion si la session est révoquée pendant la consultation', async () => {
@@ -290,6 +324,43 @@ describe('MyFilesView', () => {
       await flushPromises()
 
       expect(wrapper.find('.form-error-global').text()).toBe('Trop de requêtes.')
+    })
+
+    it('affiche un message et rafraîchit la liste sur un statut de suppression inattendu', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+      fetchMock.mockResolvedValueOnce(jsonResponse(500, {}))
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([])))
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('.file-row-delete-button').trigger('click')
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(wrapper.find('.form-error-global').text()).toBe(
+        'Une erreur est survenue. Veuillez réessayer plus tard.',
+      )
+      expect(wrapper.text()).toContain('Aucun fichier à afficher.')
+    })
+
+    it('affiche le message du serveur, sans rafraîchir, quand la suppression échoue sur une panne réseau', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('.file-row-delete-button').trigger('click')
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(wrapper.find('.form-error-global').text()).toBe(
+        'Connexion au serveur impossible. Vérifie ta connexion et réessaie.',
+      )
+      expect(wrapper.find('.file-row-name').text()).toBe('rapport.pdf')
     })
 
     it('redirige vers la connexion si la session est révoquée pendant la suppression', async () => {
