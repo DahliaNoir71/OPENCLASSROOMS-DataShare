@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 
@@ -86,7 +86,7 @@ describe('AppHeader', () => {
     const store = useAuthStore()
 
     await wrapper.find('.app-header-logout').trigger('click')
-    await router.isReady()
+    await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', {
       method: 'POST',
