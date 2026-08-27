@@ -10,7 +10,7 @@ Projet réalisé dans le cadre du parcours OpenClassrooms.
 ## Documentation de conception
 
 Les documents de [`docs/`](docs/) font autorité sur les choix fonctionnels et
-techniques. Deux documents qualité vivent à la racine du dépôt, à l'endroit où
+techniques. Trois documents qualité vivent à la racine du dépôt, à l'endroit où
 on les attend. Le présent README ne traite que de la mise en route.
 
 | Document | Contenu |
@@ -21,14 +21,17 @@ on les attend. Le présent README ne traite que de la mise en route.
 | [docs/design-tokens.md](docs/design-tokens.md) | Jetons de design de la SPA (couleurs, typographie, espacements) |
 | [SECURITY.md](SECURITY.md) | Limites de sécurité assumées, au fil des lots fonctionnels |
 | [PERF.md](PERF.md) | Budgets et arbitrages de performance, au fil des lots fonctionnels |
+| [MAINTENANCE.md](MAINTENANCE.md) | Exploitation : entrée cron du scheduler, purge quotidienne, mise à jour des dépendances |
 
 ## État du projet
 
 La conception fonctionnelle et technique est arrêtée. L'implémentation du
 domaine métier a démarré par l'authentification (inscription US03, connexion
 US04), puis a couvert le dépôt d'un fichier (US01), le parcours de
-téléchargement par lien public (US02), l'historique des fichiers (US05) et la
-suppression manuelle (US06). Reste la purge planifiée (US10).
+téléchargement par lien public (US02), l'historique des fichiers (US05), la
+suppression manuelle (US06) et la purge planifiée des fichiers expirés
+(US10). Le domaine métier est complet ; ce qui reste ouvert tient au
+déploiement, pas au code.
 
 | Brique | État |
 | --- | --- |
@@ -40,6 +43,7 @@ suppression manuelle (US06). Reste la purge planifiée (US10).
 | Contrat d'API | ✅ 9 opérations sur 9 implémentées — les quatre d'authentification, le dépôt de fichier (US01), le parcours de téléchargement (US02), l'historique (US05) et la suppression manuelle (US06) |
 | Modèle de données métier | ✅ table `files` migrée et exploitée |
 | Écrans de la SPA | ✅ accueil, inscription, connexion, dépôt, historique (« Mon espace ») et écran de partage (`/l/:token`) en place |
+| Purge planifiée des fichiers expirés | ✅ commande `files:purge-expired`, planifiée quotidiennement — l'entrée cron reste à poser en déploiement ([MAINTENANCE.md](MAINTENANCE.md)) |
 
 ## Stack technique
 
@@ -241,17 +245,29 @@ groupe : aucune réponse de cette API n'est stockable, ni par un proxy ni par le
 navigateur. Le raisonnement est dans
 [docs/architecture.md](docs/architecture.md#cache).
 
-Deux processus facultatifs, à lancer dans des terminaux supplémentaires selon le
-besoin :
+Trois processus facultatifs, à lancer dans des terminaux supplémentaires selon
+le besoin :
 
 ```bash
 php artisan queue:listen --tries=1         # traitement des jobs
 php artisan pail                           # logs en direct
+php artisan schedule:work                  # boucle : schedule:run chaque minute
 ```
 
-Le worker de file d'attente ne sert à rien à ce stade : aucun job n'est encore
-défini (pas de `app/Jobs`, aucun `dispatch()`). Il deviendra nécessaire quand la
-purge ou l'envoi de courriels seront implémentés.
+Le worker de file d'attente ne sert toujours à rien : aucun job n'est défini
+(pas de `app/Jobs`, aucun `dispatch()`), et la purge planifiée (US10) n'en est
+pas un — c'est une commande Artisan, exécutée en synchrone par le scheduler.
+Le choix est délibéré : passer par la file ajouterait un second processus à
+superviser et une seconde façon d'échouer, pour une tâche quotidienne qui dure
+quelques secondes et ne fait attendre personne. Le worker deviendra nécessaire
+le jour où un traitement devra rendre la main avant d'être terminé — un envoi
+de courriels, typiquement.
+
+Un poste de développement n'a pas de cron : `schedule:work` en tient lieu le
+temps d'une session, ce n'est pas la voie de déploiement — celle-ci est une
+entrée cron, décrite dans [MAINTENANCE.md](MAINTENANCE.md). Pour lancer la
+purge sans attendre son heure : `php artisan files:purge-expired`, rejouable
+sans dommage.
 
 ### Frontend
 
@@ -355,7 +371,8 @@ passage en ligne de commande.
 │   ├── app/                    Modèles, contrôleurs, requests, services, exceptions
 │   ├── config/                 Configuration du framework (dont jwt.php)
 │   ├── database/               Migrations, factories, seeders
-│   ├── routes/                 Déclaration des routes (api.php, web.php)
+│   ├── routes/                 Déclaration des routes et tâches planifiées
+│   │                           (api.php, web.php, console.php)
 │   ├── storage/                Logs, cache, fichiers déposés (non versionnés)
 │   └── tests/                  Tests unitaires et fonctionnels
 ├── frontend/                   SPA Vue 3 + TypeScript
@@ -415,7 +432,8 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [x] Implémenter les 9 opérations du contrat d'API — les 4 d'authentification,
       le dépôt de fichier (US01), le parcours de téléchargement (US02),
       l'historique (US05) et la suppression manuelle (US06)
-- [ ] Écrire le scheduler de purge (US10)
+- [x] Écrire le scheduler de purge (US10) → commande `files:purge-expired`,
+      planifiée dans [`backend/routes/console.php`](backend/routes/console.php)
 - [x] Construire l'écran de partage de la SPA d'après les maquettes (US02) →
       `/l/:token`, route publique sans garde
 - [x] Ajouter une route de repli 404 au routeur : un chemin totalement
@@ -428,17 +446,24 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [x] Mettre à jour [docs/architecture.md](docs/architecture.md), qui indiquait
       encore qu'aucun paquet JWT n'était installé
 - [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
-      sans laquelle aucune purge n'a lieu
-- [ ] Compléter la piste d'audit avec `Expired files purged` — les événements
-      d'authentification, `File uploaded` (US01), les trois du téléchargement
-      (US02) et les trois de la suppression manuelle (US06) sont en place, la
-      convention est dans
+      sans laquelle aucune purge n'a lieu → ligne exacte dans
+      [MAINTENANCE.md](MAINTENANCE.md)
+- [x] Compléter la piste d'audit avec `Expired files purged` → la piste
+      d'audit est complète, convention dans
       [docs/architecture.md](docs/architecture.md#la-piste-daudit)
 - [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=info` — et non `warning`,
       qui ferait taire la piste d'audit —, canal `daily` ou `stderr`, et
       `CACHE_STORE=redis` si la charge le justifie
 - [ ] Déclarer une URL de production dans `servers` du contrat d'API, au premier
       déploiement — l'unique entrée pointe aujourd'hui sur `localhost`
+- [ ] Micro-lot `fix/US01-expiration-bounds` : `expires_in_days` transmis vide
+      crée un fichier déjà expiré (le défaut de 7 jours ne s'applique que si
+      le champ est absent, pas s'il est `null`), et `default_expiry_days` /
+      `max_expiry_days` sont indépendants en configuration — rien ne garantit
+      le premier inférieur ou égal au second
+- [ ] Nettoyer les répertoires `AAAA/MM/JJ` vides que la purge laisse derrière
+      elle sur le disque `uploads` : `FileStorageService::delete()` efface les
+      fichiers, jamais les répertoires qui les contenaient
 
 ## Licence
 

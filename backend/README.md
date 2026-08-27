@@ -12,10 +12,12 @@ ne répète rien.
 | Sujet | Où |
 | --- | --- |
 | Routes exposées | [`routes/api.php`](routes/api.php) |
+| Tâches planifiées | [`routes/console.php`](routes/console.php) |
 | Contrat d'API | [`../docs/openapi.yaml`](../docs/openapi.yaml) |
 | Architecture, cache, journalisation | [`../docs/architecture.md`](../docs/architecture.md) |
 | Modèle de données | [`../docs/mcd.md`](../docs/mcd.md) |
 | Limites de sécurité assumées | [`../SECURITY.md`](../SECURITY.md) |
+| Exploitation et mise à jour | [`../MAINTENANCE.md`](../MAINTENANCE.md) |
 
 ## Particularités
 
@@ -29,6 +31,10 @@ ne répète rien.
 - **Les tests tournent sur SQLite en mémoire** (voir
   [`phpunit.xml`](phpunit.xml)) : aucun conteneur n'est requis pour `php artisan
   test`. Le PostgreSQL de `compose.yaml` ne sert qu'au développement.
+- **Aucun démon.** La purge quotidienne (US10) est une commande Artisan
+  appelée par le scheduler ; le scheduler lui-même n'a pas de processus à
+  lui, il suppose une entrée cron sur l'hôte de déploiement (cf.
+  [`../MAINTENANCE.md`](../MAINTENANCE.md)).
 
 ## Licence
 
