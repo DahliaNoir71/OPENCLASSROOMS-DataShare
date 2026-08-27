@@ -24,6 +24,39 @@ interface UploadResponse {
   data: UploadedFile
 }
 
+/** Filtre maquette « Tous / Actifs / Expiré » (docs/openapi.yaml, GET /files). */
+export type FileStatus = 'all' | 'active' | 'expired'
+
+export interface ListOptions {
+  status?: FileStatus
+  page?: number
+  perPage?: number
+}
+
+/** Enveloppe native de pagination Laravel (docs/openapi.yaml, FileListResponse). */
+export interface PaginationLinks {
+  first: string | null
+  last: string | null
+  prev: string | null
+  next: string | null
+}
+
+export interface PaginationMeta {
+  current_page: number
+  from: number | null
+  last_page: number
+  path: string
+  per_page: number
+  to: number | null
+  total: number
+}
+
+export interface FilesPage {
+  data: UploadedFile[]
+  links: PaginationLinks
+  meta: PaginationMeta
+}
+
 interface ValidationErrorResponse {
   message?: string
   errors?: ValidationErrors
@@ -57,6 +90,33 @@ export class UploadUnauthenticatedError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'UploadUnauthenticatedError'
+  }
+}
+
+/** 422 : status ou per_page invalide (le switch et la pagination pilotent ces valeurs eux-mêmes, mais un lien suivi tel quel peut porter une valeur périmée). */
+export class ListValidationError extends Error {
+  readonly errors: ValidationErrors
+
+  constructor(message: string, errors: ValidationErrors) {
+    super(message)
+    this.name = 'ListValidationError'
+    this.errors = errors
+  }
+}
+
+/** 429 : un message global, sans champ associé. */
+export class ListMessageError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ListMessageError'
+  }
+}
+
+/** 401 : la session a déjà été purgée, il reste à rediriger vers la connexion. */
+export class ListUnauthenticatedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ListUnauthenticatedError'
   }
 }
 
@@ -126,5 +186,49 @@ export const useFilesStore = defineStore('files', () => {
     throw new Error(`Réponse inattendue du serveur (statut ${response.status}).`)
   }
 
-  return { upload }
+  async function list(options: ListOptions = {}): Promise<FilesPage> {
+    const params = new URLSearchParams()
+    if (options.status) {
+      params.set('status', options.status)
+    }
+    if (options.page) {
+      params.set('page', String(options.page))
+    }
+    if (options.perPage) {
+      params.set('per_page', String(options.perPage))
+    }
+
+    const query = params.toString()
+    const response = await fetch(`/api/files${query ? `?${query}` : ''}`, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${authStore.token ?? ''}`,
+      },
+    })
+
+    if (response.status === 200) {
+      return (await response.json()) as FilesPage
+    }
+
+    if (response.status === 401) {
+      authStore.clearSession()
+      throw new ListUnauthenticatedError('Session expirée. Connecte-toi de nouveau.')
+    }
+
+    if (response.status === 422) {
+      const data = await readJson<ValidationErrorResponse>(response)
+      throw new ListValidationError(data?.message ?? 'Erreur de validation.', data?.errors ?? {})
+    }
+
+    if (response.status === 429) {
+      const data = await readJson<MessageResponse>(response)
+      throw new ListMessageError(
+        data?.message ?? 'Trop de requêtes. Réessaie dans quelques instants.',
+      )
+    }
+
+    throw new Error(`Réponse inattendue du serveur (statut ${response.status}).`)
+  }
+
+  return { upload, list }
 })
