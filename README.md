@@ -39,7 +39,7 @@ Restent la suppression manuelle (US06) et la purge planifiée (US10).
 | Authentification JWT | ✅ `php-open-source-saver/jwt-auth` installé et configuré |
 | Contrat d'API | 🟡 8 opérations sur 9 implémentées — les quatre d'authentification, le dépôt de fichier (US01), le parcours de téléchargement (US02) et l'historique (US05) |
 | Modèle de données métier | ✅ table `files` migrée et exploitée |
-| Écrans de la SPA | 🟡 accueil, inscription et connexion en place ; dépôt et partage à écrire |
+| Écrans de la SPA | 🟡 accueil, inscription, connexion, dépôt et historique (« Mon espace ») en place ; écran de partage à écrire |
 
 ## Stack technique
 
@@ -414,8 +414,8 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       manuelle (US06) — et le scheduler de purge (US10) ; les 4 opérations
       d'authentification, le dépôt de fichier (US01), le parcours de
       téléchargement (US02) et l'historique (US05) sont faits
-- [ ] Construire les écrans de dépôt, de liste et de partage de la SPA d'après
-      les maquettes ; accueil, inscription et connexion sont en place
+- [ ] Construire l'écran de partage de la SPA d'après les maquettes ; accueil,
+      inscription, connexion, dépôt et historique (« Mon espace ») sont en place
 - [x] Supprimer la chaîne de build front du backend, devenue morte :
       `package.json`, `.npmrc`, `vite.config.js`, `resources/` et la route `/`
       de `routes/web.php`
