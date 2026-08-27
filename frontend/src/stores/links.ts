@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 
+import { NETWORK_ERROR_MESSAGE } from '@/utils/network'
 import { readJson } from '@/utils/readJson'
 
 /** Les 5 champs de LinkMetadata (docs/openapi.yaml), renvoyés à plat. */
@@ -67,9 +68,14 @@ export const useLinksStore = defineStore('links', () => {
   async function metadata(token: string): Promise<LinkMetadata> {
     // Route publique : aucun Authorization, un lien de partage n'est pas lié
     // à une session.
-    const response = await fetch(`/api/links/${encodeURIComponent(token)}`, {
-      headers: { Accept: 'application/json' },
-    })
+    let response: Response
+    try {
+      response = await fetch(`/api/links/${encodeURIComponent(token)}`, {
+        headers: { Accept: 'application/json' },
+      })
+    } catch {
+      throw new LinkMessageError(NETWORK_ERROR_MESSAGE)
+    }
 
     if (response.status === 200) {
       return (await response.json()) as LinkMetadata
@@ -98,14 +104,19 @@ export const useLinksStore = defineStore('links', () => {
   }
 
   async function download(token: string, password?: string): Promise<Blob> {
-    const response = await fetch(`/api/links/${encodeURIComponent(token)}/download`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(password ? { password } : {}),
-    })
+    let response: Response
+    try {
+      response = await fetch(`/api/links/${encodeURIComponent(token)}/download`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(password ? { password } : {}),
+      })
+    } catch {
+      throw new LinkMessageError(NETWORK_ERROR_MESSAGE)
+    }
 
     if (response.status === 200) {
       return await response.blob()
