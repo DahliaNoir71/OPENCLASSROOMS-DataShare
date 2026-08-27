@@ -25,15 +25,26 @@
 // -- This will overwrite an existing command --
 // Cypress.Commands.overwrite('visit', (originalFn, url, options) => { ... })
 //
-// declare global {
-//   namespace Cypress {
-//     interface Chainable {
-//       login(email: string, password: string): Chainable<void>
-//       drag(subject: string, options?: Partial<TypeOptions>): Chainable<Element>
-//       dismiss(subject: string, options?: Partial<TypeOptions>): Chainable<Element>
-//       visit(originalFn: CommandOriginalFn, url: string, options: Partial<VisitOptions>): Chainable<Element>
-//     }
-//   }
-// }
+
+declare global {
+  namespace Cypress {
+    interface Chainable {
+      login(email: string, password: string): Chainable<void>
+    }
+  }
+}
+
+/**
+ * Authentifie via l'API et pose le jeton dans localStorage (clé
+ * TOKEN_STORAGE_KEY du store auth) : évite de rejouer le formulaire de
+ * connexion dans les specs qui n'ont pas besoin de le tester elles-mêmes.
+ */
+Cypress.Commands.add('login', (email: string, password: string) => {
+  cy.session([email, password], () => {
+    cy.request('POST', '/api/auth/login', { email, password }).then(({ body }) => {
+      window.localStorage.setItem('datashare_token', body.token)
+    })
+  })
+})
 
 export {}
