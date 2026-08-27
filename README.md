@@ -418,9 +418,10 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [ ] Écrire le scheduler de purge (US10)
 - [x] Construire l'écran de partage de la SPA d'après les maquettes (US02) →
       `/l/:token`, route publique sans garde
-- [ ] Ajouter une route de repli 404 au routeur : un chemin totalement
+- [x] Ajouter une route de repli 404 au routeur : un chemin totalement
       étranger (hors `/l/:token`, qui capte déjà un token invalide) rend
-      aujourd'hui une page vide
+      aujourd'hui une page vide → `NotFoundView`, route catch-all
+      `/:pathMatch(.*)*`
 - [x] Supprimer la chaîne de build front du backend, devenue morte :
       `package.json`, `.npmrc`, `vite.config.js`, `resources/` et la route `/`
       de `routes/web.php`

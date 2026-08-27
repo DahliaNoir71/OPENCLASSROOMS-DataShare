@@ -29,6 +29,11 @@ const router = createRouter({
       name: 'download',
       component: () => import('../views/DownloadView.vue'),
     },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('../views/NotFoundView.vue'),
+    },
   ],
 })
 
