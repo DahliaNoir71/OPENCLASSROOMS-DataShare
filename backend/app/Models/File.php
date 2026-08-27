@@ -5,6 +5,8 @@ namespace App\Models;
 use Database\Factories\FileFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -51,5 +53,23 @@ class File extends Model
     public function isProtected(): bool
     {
         return $this->password !== null;
+    }
+
+    /**
+     * Le complément exact d'`isExpired()` (US05) : l'un et l'autre doivent
+     * s'accorder à l'instant précis de l'échéance, faute de quoi une ligne
+     * pile à `expires_at` se retrouverait dans les deux ensembles, ou dans
+     * aucun.
+     */
+    #[Scope]
+    protected function active(Builder $query): void
+    {
+        $query->where('expires_at', '>=', now());
+    }
+
+    #[Scope]
+    protected function expired(Builder $query): void
+    {
+        $query->where('expires_at', '<', now());
     }
 }
