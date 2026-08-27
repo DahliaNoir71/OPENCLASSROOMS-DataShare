@@ -75,4 +75,22 @@ return [
         'max_per_page' => (int) env('DATASHARE_HISTORY_MAX_PER_PAGE', 100),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Purge des fichiers expirés (US10)
+    |--------------------------------------------------------------------------
+    |
+    | Taille du lot parcouru par `files:purge-expired`. La valeur a peu d'effet
+    | en production — le coût d'un passage tient aux deux opérations disque de
+    | chaque fichier, pas au nombre de requêtes — et elle est ici pour la même
+    | raison que 'max_per_page' plus haut : qu'un test puisse l'abaisser à 2 et
+    | prouver que le parcours ne saute rien, sans créer mille un fichiers. Le
+    | défaut est celui du framework (Prunable::pruneAll).
+    |
+    */
+
+    'purge' => [
+        'chunk' => (int) env('DATASHARE_PURGE_CHUNK', 1000),
+    ],
+
 ];
