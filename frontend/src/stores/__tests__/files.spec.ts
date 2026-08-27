@@ -3,6 +3,9 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { TOKEN_STORAGE_KEY, useAuthStore } from '../auth'
 import {
+  ListMessageError,
+  ListUnauthenticatedError,
+  ListValidationError,
   UploadMessageError,
   UploadUnauthenticatedError,
   UploadValidationError,
@@ -154,5 +157,85 @@ describe('useFilesStore', () => {
 
     expect(error).not.toBeInstanceOf(UploadValidationError)
     expect((error as Error).message).toBe('Réponse inattendue du serveur (statut 500).')
+  })
+
+  describe('list', () => {
+    const filesPage = {
+      data: [uploadedFile],
+      links: { first: '/api/files?page=1', last: '/api/files?page=1', prev: null, next: null },
+      meta: {
+        current_page: 1,
+        from: 1,
+        last_page: 1,
+        path: '/api/files',
+        per_page: 25,
+        to: 1,
+        total: 1,
+      },
+    }
+
+    it('interroge /api/files sans paramètre quand aucune option n’est fournie', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, filesPage))
+
+      const result = await useFilesStore().list()
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock.mock.calls[0]![0]).toBe('/api/files')
+      expect(lastRequestInit().headers).toEqual({
+        Accept: 'application/json',
+        Authorization: 'Bearer jwt-test',
+      })
+      expect(result).toEqual(filesPage)
+    })
+
+    it('reporte status, page et per_page dans la chaîne de requête', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, filesPage))
+
+      await useFilesStore().list({ status: 'active', page: 2, perPage: 10 })
+
+      expect(fetchMock.mock.calls[0]![0]).toBe('/api/files?status=active&page=2&per_page=10')
+    })
+
+    it('purge la session sur un 401', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(401, { message: 'Unauthenticated.' }))
+      const authStore = useAuthStore()
+
+      await expect(useFilesStore().list()).rejects.toBeInstanceOf(ListUnauthenticatedError)
+
+      expect(authStore.token).toBeNull()
+      expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
+    })
+
+    it('propage les erreurs par champ sur un 422', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(422, {
+          message: 'The given data was invalid.',
+          errors: { status: ['Le filtre demandé est invalide.'] },
+        }),
+      )
+
+      await expect(useFilesStore().list({ status: 'active' })).rejects.toMatchObject({
+        name: 'ListValidationError',
+        errors: { status: ['Le filtre demandé est invalide.'] },
+      })
+    })
+
+    it('remonte le message du serveur sur un 429', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(429, { message: 'Trop de requêtes.' }))
+
+      await expect(useFilesStore().list()).rejects.toBeInstanceOf(ListMessageError)
+      await expect(useFilesStore().list()).rejects.toThrow('Trop de requêtes.')
+    })
+
+    it('signale un statut inattendu sans le confondre avec une erreur de validation', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(500, {}))
+
+      const error = await useFilesStore()
+        .list()
+        .catch((caught: unknown) => caught)
+
+      expect(error).not.toBeInstanceOf(ListValidationError)
+      expect((error as Error).message).toBe('Réponse inattendue du serveur (statut 500).')
+    })
   })
 })

@@ -19,6 +19,11 @@ const router = createRouter({
       name: 'login',
       component: () => import('../views/LoginView.vue'),
     },
+    {
+      path: '/mon-espace',
+      name: 'my-files',
+      component: () => import('../views/MyFilesView.vue'),
+    },
   ],
 })
 

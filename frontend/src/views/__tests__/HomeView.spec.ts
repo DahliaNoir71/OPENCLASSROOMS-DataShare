@@ -25,6 +25,7 @@ beforeEach(async () => {
     routes: [
       { path: '/', component: HomeView },
       { path: '/login', component: { template: '<div />' } },
+      { path: '/mon-espace', component: { template: '<div />' } },
     ],
   })
   await router.push('/')
@@ -58,7 +59,7 @@ describe('HomeView', () => {
     expect(link.attributes('href')).toBe('/login')
   })
 
-  it("redirige un visiteur non authentifié vers la connexion, retour prévu sur la page courante", async () => {
+  it('redirige un visiteur non authentifié vers la connexion, retour prévu sur la page courante', async () => {
     const pushSpy = vi.spyOn(router, 'push')
     const wrapper = mountView()
 

@@ -9,6 +9,7 @@ import {
   useFilesStore,
   type UploadedFile,
 } from '@/stores/files'
+import { formatFileSize } from '@/utils/formatFileSize'
 
 /** 1 Go, borne annoncée par le contrat et par la maquette. */
 const MAX_FILE_SIZE_BYTES = 2 ** 30
@@ -29,23 +30,6 @@ const EXPIRY_OPTIONS = [
 
 const DEFAULT_EXPIRY_DAYS = 7
 const COPY_FEEDBACK_MS = 2000
-const SIZE_UNITS = ['o', 'Ko', 'Mo', 'Go']
-
-function formatFileSize(bytes: number): string {
-  let value = bytes
-  let unit = 0
-
-  while (value >= 1024 && unit < SIZE_UNITS.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-
-  // Octets et kilo-octets restent entiers ; au-delà, une décimale suffit à
-  // situer la taille sans donner une fausse précision.
-  const rounded = unit < 2 ? Math.round(value) : Math.round(value * 10) / 10
-
-  return `${rounded.toString().replace('.', ',')} ${SIZE_UNITS[unit]}`
-}
 
 const router = useRouter()
 const route = useRoute()

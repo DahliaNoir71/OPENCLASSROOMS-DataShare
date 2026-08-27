@@ -1,7 +1,16 @@
+<script setup lang="ts">
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
+</script>
+
 <template>
   <header class="app-header">
     <span class="app-header-logo">DataShare</span>
-    <router-link class="app-header-login" to="/login">Se connecter</router-link>
+    <router-link v-if="authStore.token" class="app-header-login" to="/mon-espace">
+      Mon espace
+    </router-link>
+    <router-link v-else class="app-header-login" to="/login">Se connecter</router-link>
   </header>
 </template>
 

@@ -10,7 +10,8 @@ Projet réalisé dans le cadre du parcours OpenClassrooms.
 ## Documentation de conception
 
 Les documents de [`docs/`](docs/) font autorité sur les choix fonctionnels et
-techniques ; le présent README ne traite que de la mise en route.
+techniques. Deux documents qualité vivent à la racine du dépôt, à l'endroit où
+on les attend. Le présent README ne traite que de la mise en route.
 
 | Document | Contenu |
 | --- | --- |
@@ -18,14 +19,16 @@ techniques ; le présent README ne traite que de la mise en route.
 | [docs/mcd.md](docs/mcd.md) | MCD (Merise) et MLD, contraintes, index, décisions de modélisation |
 | [docs/openapi.yaml](docs/openapi.yaml) | Contrat d'API (OpenAPI 3.1) — 9 opérations |
 | [docs/design-tokens.md](docs/design-tokens.md) | Jetons de design de la SPA (couleurs, typographie, espacements) |
+| [SECURITY.md](SECURITY.md) | Limites de sécurité assumées, au fil des lots fonctionnels |
+| [PERF.md](PERF.md) | Budgets et arbitrages de performance, au fil des lots fonctionnels |
 
 ## État du projet
 
 La conception fonctionnelle et technique est arrêtée. L'implémentation du
 domaine métier a démarré par l'authentification (inscription US03, connexion
-US04), puis a couvert le dépôt d'un fichier (US01) et le parcours de
-téléchargement par lien public (US02). Restent l'historique des fichiers
-(US05), la suppression manuelle (US06) et la purge planifiée (US10).
+US04), puis a couvert le dépôt d'un fichier (US01), le parcours de
+téléchargement par lien public (US02) et l'historique des fichiers (US05).
+Restent la suppression manuelle (US06) et la purge planifiée (US10).
 
 | Brique | État |
 | --- | --- |
@@ -34,9 +37,9 @@ téléchargement par lien public (US02). Restent l'historique des fichiers
 | Frontend Vue 3 + TypeScript (`frontend/`) | ✅ initialisé |
 | Architecture technique | ✅ documentée |
 | Authentification JWT | ✅ `php-open-source-saver/jwt-auth` installé et configuré |
-| Contrat d'API | 🟡 7 opérations sur 9 implémentées — les quatre d'authentification, le dépôt de fichier (US01) et le parcours de téléchargement (US02) |
+| Contrat d'API | 🟡 8 opérations sur 9 implémentées — les quatre d'authentification, le dépôt de fichier (US01), le parcours de téléchargement (US02) et l'historique (US05) |
 | Modèle de données métier | ✅ table `files` migrée et exploitée |
-| Écrans de la SPA | 🟡 accueil, inscription et connexion en place ; dépôt et partage à écrire |
+| Écrans de la SPA | 🟡 accueil, inscription, connexion, dépôt et historique (« Mon espace ») en place ; écran de partage à écrire |
 
 ## Stack technique
 
@@ -194,6 +197,7 @@ contrat d'API). Routes réellement en place à ce stade, cf.
 | `POST /api/auth/login` | Connexion (US04) — renvoie un JWT |
 | `GET /api/auth/me` | Utilisateur du jeton porté par la requête |
 | `POST /api/auth/logout` | Invalidation du jeton courant |
+| `GET /api/files` | Historique des fichiers de l'utilisateur (US05) — pagination, filtre `status` |
 | `POST /api/files` | Dépôt d'un fichier authentifié (US01) — renvoie ses métadonnées et son lien de téléchargement |
 | `GET /api/links/{token}` | Métadonnées publiques d'un lien (US02) — nom, taille, type, expiration, protégé ou non |
 | `POST /api/links/{token}/download` | Téléchargement du fichier (US02, US09) — mot de passe dans le corps, jamais dans l'URL |
@@ -205,8 +209,9 @@ exposée : [`routes/web.php`](backend/routes/web.php) est vide.
 Toutes les routes `/api` sont plafonnées à 60 requêtes par minute (par
 utilisateur authentifié, sinon par IP). `register` et `login`, ouvertes à tous,
 sont en plus plafonnées à 5 par minute et par IP — ce sont celles qu'une attaque
-par bourrage d'identifiants viserait ; `me` et `logout`, derrière un jeton, ne
-relèvent que du plafond général. `POST /files` (US01) a son propre plafond, 10
+par bourrage d'identifiants viserait ; `me`, `logout` et l'historique
+(`GET /files`, US05), derrière un jeton, ne relèvent que du plafond général.
+`POST /files` (US01) a son propre plafond, 10
 par minute et par utilisateur : un ceiling qui n'a rien à voir avec celui d'un
 simple appel JSON, chaque appel pouvant transporter jusqu'à 1 Go.
 
@@ -405,12 +410,12 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [x] Écrire la migration du modèle métier : table `files` (US01)
 - [ ] Aligner `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
       `remember_token` restent livrés par le squelette, absents du modèle)
-- [ ] Implémenter les 2 opérations restantes du contrat d'API — l'historique
-      (US05) et la suppression manuelle (US06) — et le scheduler de purge
-      (US10) ; les 4 opérations d'authentification, le dépôt de fichier (US01)
-      et le parcours de téléchargement (US02) sont faits
-- [ ] Construire les écrans de dépôt, de liste et de partage de la SPA d'après
-      les maquettes ; accueil, inscription et connexion sont en place
+- [ ] Implémenter la dernière opération du contrat d'API — la suppression
+      manuelle (US06) — et le scheduler de purge (US10) ; les 4 opérations
+      d'authentification, le dépôt de fichier (US01), le parcours de
+      téléchargement (US02) et l'historique (US05) sont faits
+- [ ] Construire l'écran de partage de la SPA d'après les maquettes ; accueil,
+      inscription, connexion, dépôt et historique (« Mon espace ») sont en place
 - [x] Supprimer la chaîne de build front du backend, devenue morte :
       `package.json`, `.npmrc`, `vite.config.js`, `resources/` et la route `/`
       de `routes/web.php`

@@ -34,4 +34,16 @@ trait CapturesLogs
             fn (MessageLogged $logged): bool => $logged->message === $message,
         ));
     }
+
+    /**
+     * Prouve l'absence de toute ligne, quand aucun nom d'événement précis
+     * n'est en cause — le cas d'une opération qui ne doit rien journaliser
+     * (une lecture, un refus qui ne change rien).
+     *
+     * @return list<MessageLogged>
+     */
+    protected function allLogs(): array
+    {
+        return $this->capturedLogs;
+    }
 }
