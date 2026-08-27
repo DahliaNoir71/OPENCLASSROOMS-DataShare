@@ -456,7 +456,7 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       `CACHE_STORE=redis` si la charge le justifie
 - [ ] Déclarer une URL de production dans `servers` du contrat d'API, au premier
       déploiement — l'unique entrée pointe aujourd'hui sur `localhost`
-- [ ] Micro-lot `fix/US01-expiration-bounds` : `expires_in_days` transmis vide
+- [x] Micro-lot `fix/US01-expiration-bounds` : `expires_in_days` transmis vide
       crée un fichier déjà expiré (le défaut de 7 jours ne s'applique que si
       le champ est absent, pas s'il est `null`), et `default_expiry_days` /
       `max_expiry_days` sont indépendants en configuration — rien ne garantit

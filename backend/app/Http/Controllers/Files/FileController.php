@@ -46,11 +46,22 @@ class FileController extends Controller
 
     public function store(UploadFileRequest $request, FileStorageService $files): JsonResponse
     {
+        // $request->integer() ne retombe sur son défaut que si la clé est
+        // ABSENTE ; une clé présente mais vide ("" -> null par
+        // ConvertEmptyStringsToNull, ou null explicite en JSON) donne
+        // (int) null === 0 ci-dessous, d'où la lecture explicite. min() borne
+        // le défaut effectif par le plafond : rien ne garantit sinon
+        // default_expiry_days <= max_expiry_days en configuration.
+        $defaultExpiryDays = min(
+            (int) config('datashare.uploads.default_expiry_days'),
+            (int) config('datashare.uploads.max_expiry_days'),
+        );
+
         $file = $files->store(
             $request->user(),
             $request->file('file'),
             $request->input('password'),
-            $request->integer('expires_in_days', (int) config('datashare.uploads.default_expiry_days')),
+            (int) ($request->input('expires_in_days') ?? $defaultExpiryDays),
         );
 
         // Piste d'audit (docs/architecture.md) : identifiants numériques
