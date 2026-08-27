@@ -24,6 +24,11 @@ const router = createRouter({
       name: 'my-files',
       component: () => import('../views/MyFilesView.vue'),
     },
+    {
+      path: '/l/:token',
+      name: 'download',
+      component: () => import('../views/DownloadView.vue'),
+    },
   ],
 })
 
