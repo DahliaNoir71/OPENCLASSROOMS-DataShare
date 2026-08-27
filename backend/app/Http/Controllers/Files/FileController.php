@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers\Files;
 
+use App\Exceptions\FileNotFoundException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Files\ListFilesRequest;
 use App\Http\Requests\Files\UploadFileRequest;
 use App\Http\Resources\FileResource;
+use App\Models\File;
 use App\Services\FileStorageService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 
 class FileController extends Controller
@@ -59,5 +63,44 @@ class FileController extends Controller
         ]);
 
         return FileResource::make($file)->response()->setStatusCode(201);
+    }
+
+    /**
+     * Résolution en deux temps (docs/architecture.md, arbitrage B1) plutôt
+     * que le model binding de route : `File::find($id)` distingue
+     * délibérément « ligne absente » de « ligne d'un autre compte » en
+     * interne, pour journaliser le second cas, mais les deux ressortent par
+     * le même `FileNotFoundException` — un identifiant non numérique ne
+     * matche aucune ligne et suit le même chemin. Le model binding
+     * produirait une `ModelNotFoundException` au message anglais nommant le
+     * modèle, que ce contrôleur veut précisément éviter.
+     *
+     * @throws FileNotFoundException
+     */
+    public function destroy(Request $request, int|string $id, FileStorageService $files): Response
+    {
+        $file = File::find($id);
+
+        if ($file === null) {
+            throw new FileNotFoundException;
+        }
+
+        if ((int) $file->user_id !== $request->user()->id) {
+            Log::warning('File deletion refused', [
+                'user_id' => $request->user()->id,
+                'file_id' => $file->id,
+            ]);
+
+            throw new FileNotFoundException;
+        }
+
+        $files->delete($file);
+
+        Log::info('File deleted', [
+            'user_id' => $request->user()->id,
+            'file_id' => $file->id,
+        ]);
+
+        return response()->noContent();
     }
 }
