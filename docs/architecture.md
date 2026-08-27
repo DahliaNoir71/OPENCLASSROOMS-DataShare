@@ -318,13 +318,19 @@ irréversible exigé par US06 ne laisse, par construction, aucune autre preuve.
 | `File deleted` | `204` sur `/files/{id}` | `user_id`, `file_id` |
 | `File deletion refused` | `404` sur `/files/{id}`, fichier d'un autre compte | `user_id`, `file_id` — niveau `warning` |
 | `File content already missing` | suppression d'une ligne dont les octets ont déjà disparu du disque | `file_id` — niveau `warning` |
-| `Expired files purged` | passage du scheduler | nombre supprimé, nombre en échec |
+| `Expired files purged` | passage quotidien du scheduler (US10) | `deleted`, `failed` |
 
-Les neuf premières lignes sont implémentées : les quatre routes
-d'authentification, `File uploaded` avec le dépôt de fichier (US01), les
-trois du parcours de téléchargement (US02), et `File deleted` avec ses deux
-lignes de garde, `File deletion refused` et `File content already missing`
-(US06). Reste `Expired files purged`, qui arrivera avec le scheduler.
+Les douze lignes sont implémentées : les quatre routes d'authentification,
+`File uploaded` avec le dépôt de fichier (US01), les trois du parcours de
+téléchargement (US02), `File deleted` avec ses deux lignes de garde,
+`File deletion refused` et `File content already missing` (US06), et
+`Expired files purged` avec la purge planifiée (US10). La piste d'audit est
+complète : chaque ligne du tableau correspond désormais à une écriture
+réelle, et non à une intention. Une treizième ligne, `Expired file purged`
+en niveau `debug`, accompagne chaque fichier effectivement purgé avec son
+seul `file_id` — filtrée par le seuil `info` retenu en production, elle
+comble sans coût l'écart avec `File deleted`, qui laisse lui une trace
+nominative.
 
 Trois de ces lignes sortent du niveau `info`, et pour des raisons différentes
 qu'il vaut la peine de distinguer.
@@ -368,9 +374,11 @@ Trois règles tiennent la convention :
 
 ### Ce qui reste à écrire
 
-- **Le rapport de purge** : nombre de fichiers supprimés, échecs de suppression
-  physique. Sans lui, un scheduler qui ne tourne pas est indétectable jusqu'à
-  saturation du disque. Attend l'écriture du scheduler.
+- **Rien, à ce stade** : le tableau ci-dessus ne décrit plus une intention.
+  Ce qui reste ouvert n'est pas une ligne mais un canal — un journal d'audit
+  séparé du journal d'incidents, dont ni la durée de conservation utile ni le
+  lectorat ne sont les mêmes. Point à trancher si le volume l'impose, pas
+  avant.
 
 ### Ce qui ne doit jamais y entrer
 
@@ -463,10 +471,12 @@ répond que si le routage `/api` fonctionne.
   légitime, qui est précisément le cas nominal du `410`, en l'envoyant chercher
   une faute de copie inexistante. La contrepartie est que la fenêtre du `410`
   est bornée par la purge : une fois la ligne supprimée, le lien répond `404`,
-  donc l'écran « expiré » n'est garanti que dans les 24 h suivant l'échéance.
-  Une ligne-pierre tombale le prolongerait, au prix d'une entorse au « pas de
-  soft delete » de [mcd.md](mcd.md) et d'une question de rétention à part
-  entière : écartée pour le prototype.
+  donc l'écran « expiré » n'est garanti que jusqu'au premier passage de purge
+  qui suit l'échéance — le lendemain 03:00 UTC dans le cas nominal, plus si
+  un passage a été manqué (cf. plus bas). Une ligne-pierre tombale le
+  prolongerait, au prix d'une entorse au « pas de soft delete » de
+  [mcd.md](mcd.md) et d'une question de rétention à part entière : écartée
+  pour le prototype.
 - **Façade `Storage` plutôt qu'un accès direct au système de fichiers** :
   le driver `local` suffit au prototype, et le passage à S3 se fait par
   configuration, sans toucher au code métier. Le même contrat couvre l'écriture,
@@ -492,6 +502,27 @@ répond que si le routage `/api` fonctionne.
   maquette, qui s'ouvre sur son premier segment. Le comportement que décrit
   US06 reste atteignable côté client par `?status=active`, sans qu'aucune
   information ne soit perdue à l'API.
+- **La planification est déclarée dans `routes/console.php`** (US10), et non
+  dans `bootstrap/app.php` par `withSchedule()`. Les deux formes sont
+  équivalentes à l'exécution ; elles ne le sont pas au test. `withSchedule()`
+  n'enregistre ses tâches qu'au démarrage de l'application Artisan, quand
+  `routes/console.php` est requis par le noyau console dès le bootstrap —
+  donc dans chaque test, sans qu'aucune commande n'ait à être appelée
+  d'abord. C'est ce qui rend vérifiable, et pas seulement écrite, la phrase
+  « une fois par jour ». Le fichier était déjà câblé (`bootstrap/app.php`),
+  et le noyau HTTP ne le lit jamais : la déclaration ne coûte rien à une
+  requête.
+- **Le passage est planifié en UTC, pas en heure de Paris** (US10) : la
+  timezone applicative est `UTC` (`config/app.php`), `expires_at` y est
+  stocké et comparé, et les journaux y sont horodatés. Poser
+  `->timezone('Europe/Paris')` sur la seule tâche de purge introduirait une
+  deuxième horloge pour un gain de lisibilité que
+  `schedule:list --timezone=Europe/Paris` rend de toute façon à la demande,
+  et exposerait le passage aux deux discontinuités du changement d'heure —
+  une heure jouée deux fois à l'automne, une heure sautée au printemps. La
+  première est sans conséquence, la purge étant idempotente ; la seconde
+  supprimerait un passage sans laisser de trace. L'heure exacte n'ayant
+  aucune conséquence métier, autant qu'elle soit la même partout.
 
 ## Ce que garantit — et ne garantit pas — le scheduler
 
@@ -501,10 +532,10 @@ découplés :
 - **L'inaccessibilité est immédiate** et ne dépend pas du scheduler : elle
   découle du test `expires_at < now()` à chaque requête. Un lien cesse de
   fonctionner à la seconde près.
-- **L'effacement physique est différé** au passage quotidien suivant. Un
-  fichier expiré peut donc subsister sur le disque jusqu'à 24 h. Ce n'est pas
-  une garantie d'effacement immédiat, et il faut l'assumer comme tel si une
-  exigence de rétention plus stricte apparaît.
+- **L'effacement physique est différé** au passage quotidien suivant, planifié
+  à 03:00 UTC. Un fichier expiré subsiste donc sur le disque jusqu'au
+  lendemain matin. Ce n'est pas une garantie d'effacement immédiat, et il faut
+  l'assumer comme tel si une exigence de rétention plus stricte apparaît.
 
 **Ordre des suppressions** : contenu physique d'abord, ligne en base ensuite.
 Si la seconde étape échoue, le passage suivant retrouve la ligne expirée et
@@ -513,17 +544,35 @@ est rejouable sans dommage. L'ordre inverse laisserait un fichier orphelin sur
 le disque, que plus aucune ligne ne référence et qu'aucun passage ne
 retrouverait.
 
+**Un passage manqué n'est pas rattrapé.** Laravel n'a aucune notion
+d'arriéré : une minute qui n'a pas eu lieu — serveur éteint, cron absent —
+n'est jamais rejouée. Trois jours sans scheduler ne produisent donc pas trois
+purges de retard, mais une seule, celle du premier passage qui suit, qui
+efface tout d'un coup. Rien n'est perdu : le critère `expires_at < now()` est
+cumulatif et la tâche idempotente, exactement pour la même raison qui la rend
+rejouable après un échec partiel. Mais la borne réelle n'est pas « 24 h »,
+c'est « le premier passage qui suit l'échéance », et la longueur de cet
+intervalle relève de l'exploitation, pas de l'application. Effet secondaire à
+connaître : la purge étant ce qui transforme le `410` en `404`, un scheduler
+arrêté allonge la fenêtre du `410` au lieu de la raccourcir. Un passage
+manqué coûte du disque, jamais une réponse fausse.
+
 **Prérequis d'exploitation** : le scheduler Laravel suppose une entrée cron
 appelant `schedule:run` chaque minute. Sans elle, aucune purge n'a lieu — les
-liens expirent malgré tout, mais le disque ne se libère jamais.
+liens expirent malgré tout, mais le disque ne se libère jamais. La ligne de
+crontab exacte, l'utilisateur sous lequel elle tourne et la façon de vérifier
+qu'elle a tourné sont dans [MAINTENANCE.md](../MAINTENANCE.md) ; elles ne
+sont pas recopiées ici.
 
 ## Périmètre du prototype
 
 En développement, seul PostgreSQL est conteneurisé (`compose.yaml`) ; le
 back-end tourne via `php artisan serve` et le front via Vite. HTTPS relève donc
 de l'environnement de déploiement, pas du poste de développement — de même que
-la rotation des journaux, le niveau de log de production et le choix du store de
-cache, tous pilotés par variables d'environnement.
+la rotation des journaux, le niveau de log de production et le choix du store
+de cache, tous pilotés par variables d'environnement, et de même que l'entrée
+cron du scheduler, absente du poste de développement, où
+`php artisan schedule:work` en tient lieu le temps d'une session.
 
 Ce document décrit l'architecture cible, celle du contrat d'API. À ce stade,
 neuf opérations sur neuf sont implémentées : les quatre d'authentification —
@@ -535,7 +584,11 @@ deux du parcours de téléchargement, `GET /api/links/{token}` et
 (US06). Le diagramme de séquence plus haut est donc devenu un état des lieux.
 
 Sont en revanche en place et opérants, parce qu'ils ne dépendent d'aucune route
-en particulier : les quatre limiteurs de débit, le middleware `NoStore` sur tout
-le groupe `api`, la journalisation des dépassements de quota et le contexte
-d'exception. Ce qui reste attaché à une opération non écrite — le rapport de
-purge (US10) — arrivera avec le scheduler.
+en particulier : les quatre limiteurs de débit, le middleware `NoStore` sur
+tout le groupe `api`, la journalisation des dépassements de quota, le
+contexte d'exception — et la purge planifiée (US10), qui n'a jamais eu de
+route et n'en aura pas. Ce document ne décrit donc plus une architecture
+cible : il décrit ce qui tourne. Ce qui reste ouvert n'est plus du code mais
+du déploiement — l'entrée cron, le niveau de journal, le store de cache — et
+se lit dans [MAINTENANCE.md](../MAINTENANCE.md) et dans les points ouverts du
+[README](../README.md).
