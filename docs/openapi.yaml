@@ -147,25 +147,49 @@ paths:
       summary: Historique des fichiers de l'utilisateur (US05)
       operationId: listFiles
       security: [{ bearerAuth: [] }]
+      description: >
+        Un fichier expiré reste listé tant que sa ligne existe en base : son
+        inaccessibilité (`expires_at < now()`) est immédiate, mais son
+        effacement — physique et de la ligne — est différé à la purge
+        quotidienne (US10). Deux événements distincts le font disparaître de
+        cet inventaire : sa suppression manuelle (US06), immédiate, et cette
+        purge, différée. Entre l'échéance et la purge, la ligne reste listée
+        avec `expired: true`.
+
+
+        Le défaut `status=all` diverge délibérément de la lettre d'US06
+        (« seuls les fichiers non expirés sont affichés par défaut ») : ce
+        choix privilégie la stabilité du contrat — un appel sans paramètre
+        reste le plus complet, les filtres sont purement additifs — et
+        l'alignement sur le switch « Tous » de la maquette. Le comportement
+        décrit par US06 reste atteignable côté client via `?status=active`.
+        Cf. `docs/architecture.md`, section décisions d'API.
       parameters:
         - name: status
           in: query
           description: Filtre maquette « Tous / Actifs / Expiré »
           schema: { type: string, enum: [all, active, expired], default: all }
+        - name: page
+          in: query
+          description: Numéro de page, à partir de 1
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          description: >
+            Nombre d'éléments par page. Plafonné à 100
+            (`DATASHARE_HISTORY_MAX_PER_PAGE`) pour borner la taille d'une
+            réponse — cf. `PERF.md`.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
       responses:
         "200":
-          description: Liste des fichiers
+          description: Page de l'inventaire, la plus récente en tête
           headers:
             Cache-Control: { $ref: "#/components/headers/NoStore" }
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items: { $ref: "#/components/schemas/FileResource" }
+              schema: { $ref: "#/components/schemas/FileListResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
     post:
       tags: [files]
@@ -456,6 +480,39 @@ components:
       type: object
       properties:
         data: { $ref: "#/components/schemas/FileResource" }
+
+    PaginationLinks:
+      type: object
+      description: Enveloppe native de Laravel pour une collection paginée.
+      properties:
+        first: { type: string, format: uri, nullable: true }
+        last: { type: string, format: uri, nullable: true }
+        prev: { type: string, format: uri, nullable: true }
+        next: { type: string, format: uri, nullable: true }
+
+    PaginationMeta:
+      type: object
+      description: >
+        `status` et `per_page` sont reportés dans `next`/`prev` de
+        `PaginationLinks` (préservation de la chaîne de requête) : un client
+        qui suit ces liens n'a pas à les reconstruire lui-même.
+      properties:
+        current_page: { type: integer }
+        from: { type: integer, nullable: true }
+        last_page: { type: integer }
+        path: { type: string }
+        per_page: { type: integer }
+        to: { type: integer, nullable: true }
+        total: { type: integer }
+
+    FileListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/FileResource" }
+        links: { $ref: "#/components/schemas/PaginationLinks" }
+        meta: { $ref: "#/components/schemas/PaginationMeta" }
 
     LinkMetadata:
       type: object
