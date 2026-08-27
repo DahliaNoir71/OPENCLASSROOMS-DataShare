@@ -147,6 +147,79 @@ class UploadTest extends TestCase
         );
     }
 
+    /**
+     * `""` traverse ConvertEmptyStringsToNull et arrive en validation comme
+     * `null`, que `nullable` laisse passer : le champ doit alors se comporter
+     * comme absent, pas comme "expire immédiatement".
+     */
+    public function test_upload_with_an_empty_expires_in_days_defaults_to_seven_days(): void
+    {
+        $instant = now()->startOfSecond();
+        $token = $this->login($this->user());
+        $file = UploadedFile::fake()->create('document.pdf', 100);
+
+        $this->travelTo($instant, function () use ($token, $file): void {
+            $this->withToken($token)->postJson('/api/files', [
+                'file' => $file,
+                'expires_in_days' => '',
+            ])->assertCreated();
+        });
+
+        $fileModel = File::first();
+        $this->assertFalse($fileModel->isExpired());
+        $this->assertSame(
+            $instant->copy()->addDays(7)->getTimestamp(),
+            $fileModel->expires_at->getTimestamp(),
+        );
+    }
+
+    public function test_upload_with_a_null_expires_in_days_defaults_to_seven_days(): void
+    {
+        $instant = now()->startOfSecond();
+        $token = $this->login($this->user());
+        $file = UploadedFile::fake()->create('document.pdf', 100);
+
+        $this->travelTo($instant, function () use ($token, $file): void {
+            $this->withToken($token)->postJson('/api/files', [
+                'file' => $file,
+                'expires_in_days' => null,
+            ])->assertCreated();
+        });
+
+        $fileModel = File::first();
+        $this->assertSame(
+            $instant->copy()->addDays(7)->getTimestamp(),
+            $fileModel->expires_at->getTimestamp(),
+        );
+    }
+
+    /**
+     * Rien ne contraint default_expiry_days <= max_expiry_days en
+     * configuration : un défaut au-dessus du plafond doit être ramené au
+     * plafond, pas produire un expires_at hors de la borne validée.
+     */
+    public function test_upload_defaults_to_the_configured_max_when_default_expiry_exceeds_it(): void
+    {
+        config([
+            'datashare.uploads.default_expiry_days' => 10,
+            'datashare.uploads.max_expiry_days' => 3,
+        ]);
+
+        $instant = now()->startOfSecond();
+        $token = $this->login($this->user());
+        $file = UploadedFile::fake()->create('document.pdf', 100);
+
+        $this->travelTo($instant, function () use ($token, $file): void {
+            $this->withToken($token)->postJson('/api/files', ['file' => $file])->assertCreated();
+        });
+
+        $fileModel = File::first();
+        $this->assertSame(
+            $instant->copy()->addDays(3)->getTimestamp(),
+            $fileModel->expires_at->getTimestamp(),
+        );
+    }
+
     public function test_upload_without_authentication_returns_401(): void
     {
         $file = UploadedFile::fake()->create('document.pdf', 100);
