@@ -1,6 +1,9 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
+import { NETWORK_ERROR_MESSAGE } from '@/utils/network'
+import { readJson } from '@/utils/readJson'
+
 export type ValidationErrors = Record<string, string[]>
 
 export interface AuthUser {
@@ -55,21 +58,29 @@ export const useAuthStore = defineStore('auth', () => {
     password: string,
     passwordConfirmation: string,
   ): Promise<void> {
-    const response = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        email,
-        password,
-        password_confirmation: passwordConfirmation,
-      }),
-    })
+    let response: Response
+    try {
+      response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          password_confirmation: passwordConfirmation,
+        }),
+      })
+    } catch {
+      throw new AuthMessageError(NETWORK_ERROR_MESSAGE)
+    }
 
     if (response.status === 201) {
-      const data = (await response.json()) as AuthResponse
+      const data = await readJson<AuthResponse>(response)
+      if (!data) {
+        throw new Error(`Réponse inattendue du serveur (statut ${response.status}).`)
+      }
       token.value = data.token
       user.value = data.user
       localStorage.setItem(TOKEN_STORAGE_KEY, data.token)
@@ -77,25 +88,33 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     if (response.status === 422) {
-      const data = (await response.json()) as ValidationErrorResponse
-      throw new RegisterValidationError(data.message ?? 'Erreur de validation.', data.errors ?? {})
+      const data = await readJson<ValidationErrorResponse>(response)
+      throw new RegisterValidationError(data?.message ?? 'Erreur de validation.', data?.errors ?? {})
     }
 
     throw new Error(`Réponse inattendue du serveur (statut ${response.status}).`)
   }
 
   async function login(email: string, password: string): Promise<void> {
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({ email, password }),
-    })
+    let response: Response
+    try {
+      response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      })
+    } catch {
+      throw new AuthMessageError(NETWORK_ERROR_MESSAGE)
+    }
 
     if (response.status === 200) {
-      const data = (await response.json()) as AuthResponse
+      const data = await readJson<AuthResponse>(response)
+      if (!data) {
+        throw new Error(`Réponse inattendue du serveur (statut ${response.status}).`)
+      }
       token.value = data.token
       user.value = data.user
       localStorage.setItem(TOKEN_STORAGE_KEY, data.token)
@@ -103,15 +122,15 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     if (response.status === 422) {
-      const data = (await response.json()) as ValidationErrorResponse
-      throw new RegisterValidationError(data.message ?? 'Erreur de validation.', data.errors ?? {})
+      const data = await readJson<ValidationErrorResponse>(response)
+      throw new RegisterValidationError(data?.message ?? 'Erreur de validation.', data?.errors ?? {})
     }
 
     // 401 : identifiants refusés, sans distinction email / mot de passe.
     // 429 : plafond de requêtes atteint. Dans les deux cas le message vient du serveur.
     if (response.status === 401 || response.status === 429) {
-      const data = (await response.json()) as MessageResponse
-      throw new AuthMessageError(data.message ?? 'Connexion impossible.')
+      const data = await readJson<MessageResponse>(response)
+      throw new AuthMessageError(data?.message ?? 'Connexion impossible.')
     }
 
     throw new Error(`Réponse inattendue du serveur (statut ${response.status}).`)
@@ -170,8 +189,10 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     if (response.status === 200) {
-      const data = (await response.json()) as UserResponse
-      user.value = data.user
+      const data = await readJson<UserResponse>(response)
+      if (data) {
+        user.value = data.user
+      }
       return
     }
 
