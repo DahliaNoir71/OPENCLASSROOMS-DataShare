@@ -58,4 +58,21 @@ return [
     // construire le lien complet.
     'frontend_url' => env('DATASHARE_FRONTEND_URL', 'http://localhost:5173'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Historique des fichiers (US05)
+    |--------------------------------------------------------------------------
+    |
+    | Bornes de la pagination de GET /files, lues en configuration et jamais en
+    | littéral : c'est ce qui permet à un test d'abaisser 'max_per_page' sans
+    | générer des dizaines de fichiers pour vérifier le rejet, sur le même
+    | principe que 'max_bytes' plus haut.
+    |
+    */
+
+    'history' => [
+        'per_page' => (int) env('DATASHARE_HISTORY_PER_PAGE', 25),
+        'max_per_page' => (int) env('DATASHARE_HISTORY_MAX_PER_PAGE', 100),
+    ],
+
 ];
