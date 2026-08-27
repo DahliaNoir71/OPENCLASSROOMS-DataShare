@@ -10,7 +10,7 @@ Projet réalisé dans le cadre du parcours OpenClassrooms.
 ## Documentation de conception
 
 Les documents de [`docs/`](docs/) font autorité sur les choix fonctionnels et
-techniques. Deux documents qualité vivent à la racine du dépôt, à l'endroit où
+techniques. Trois documents qualité vivent à la racine du dépôt, à l'endroit où
 on les attend. Le présent README ne traite que de la mise en route.
 
 | Document | Contenu |
@@ -21,6 +21,7 @@ on les attend. Le présent README ne traite que de la mise en route.
 | [docs/design-tokens.md](docs/design-tokens.md) | Jetons de design de la SPA (couleurs, typographie, espacements) |
 | [SECURITY.md](SECURITY.md) | Limites de sécurité assumées, au fil des lots fonctionnels |
 | [PERF.md](PERF.md) | Budgets et arbitrages de performance, au fil des lots fonctionnels |
+| [MAINTENANCE.md](MAINTENANCE.md) | Exploitation : entrée cron du scheduler, purge quotidienne, mise à jour des dépendances |
 
 ## État du projet
 
