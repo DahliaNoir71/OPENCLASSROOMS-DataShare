@@ -191,4 +191,47 @@ describe('useAuthStore', () => {
       expect(store.user).toBeNull()
     })
   })
+
+  describe('logout', () => {
+    it('purge la session sur une réponse 200', async () => {
+      localStorage.setItem(TOKEN_STORAGE_KEY, 'jwt-persiste')
+      fetchMock.mockResolvedValue(jsonResponse(200, {}))
+      const store = useAuthStore()
+
+      await store.logout()
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer jwt-persiste',
+        },
+      })
+      expect(store.token).toBeNull()
+      expect(store.user).toBeNull()
+      expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
+    })
+
+    it('purge la session sur une réponse 401 (jeton déjà révoqué côté serveur)', async () => {
+      localStorage.setItem(TOKEN_STORAGE_KEY, 'jwt-deja-mort')
+      fetchMock.mockResolvedValue(jsonResponse(401, { message: 'Unauthenticated.' }))
+      const store = useAuthStore()
+
+      await store.logout()
+
+      expect(store.token).toBeNull()
+      expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
+    })
+
+    it('purge la session quand le réseau échoue', async () => {
+      localStorage.setItem(TOKEN_STORAGE_KEY, 'jwt-persiste')
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+      const store = useAuthStore()
+
+      await expect(store.logout()).resolves.toBeUndefined()
+
+      expect(store.token).toBeNull()
+      expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
+    })
+  })
 })

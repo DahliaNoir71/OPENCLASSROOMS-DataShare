@@ -124,6 +124,30 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
+   * Purge systématiquement la session locale, quel que soit le résultat de la
+   * révocation serveur : un 401 signifie que le jeton est déjà mort côté API,
+   * et une panne réseau ne doit pas laisser l'utilisateur « connecté » avec un
+   * jeton inutilisable.
+   */
+  async function logout(): Promise<void> {
+    if (token.value) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token.value}`,
+          },
+        })
+      } catch {
+        // Panne réseau : la purge locale suit quand même.
+      }
+    }
+
+    clearSession()
+  }
+
+  /**
    * Restaure la session au chargement de l'application : sans jeton persisté,
    * aucun appel. Seul un 401 purge la session ; un 429, un 5xx ou une panne
    * réseau ne prouvent pas que le jeton est invalide et laissent l'état intact.
@@ -156,5 +180,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { token, user, register, login, clearSession, restoreSession }
+  return { token, user, register, login, logout, clearSession, restoreSession }
 })
