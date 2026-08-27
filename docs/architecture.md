@@ -93,8 +93,7 @@ contrat ([openapi.yaml](openapi.yaml)) en fait une grammaire :
 | --- | --- |
 | `201` / `200` / `204` | Traitement accepté ; le corps porte la ressource, ou rien |
 | `401` | Jeton absent, invalide, expiré ou révoqué — identifiants de connexion refusés, ou mot de passe de partage incorrect |
-| `403` | Le fichier appartient à un autre utilisateur |
-| `404` | Lien inconnu — indistinguable, volontairement, d'un lien jamais émis |
+| `404` | Lien inconnu, ou fichier inexistant/d'un autre compte — indistinguable, volontairement, d'un lien jamais émis ou d'un identifiant qu'on ne détient pas |
 | `410` | Lien connu mais expiré : l'information « il a existé » est assumée |
 | `422` | Validation serveur ; le corps détaille les erreurs, champ par champ |
 | `429` | Quota dépassé ; `Retry-After` indique l'attente en secondes |
@@ -317,12 +316,15 @@ irréversible exigé par US06 ne laisse, par construction, aucune autre preuve.
 | `Link password failed` | `401` sur le téléchargement | `file_id`, `ip` — niveau `warning` |
 | `Link content missing` | `410` sur le téléchargement, octets absents du disque | `file_id` — niveau `error` |
 | `File deleted` | `204` sur `/files/{id}` | `user_id`, `file_id` |
+| `File deletion refused` | `404` sur `/files/{id}`, fichier d'un autre compte | `user_id`, `file_id` — niveau `warning` |
+| `File content already missing` | suppression d'une ligne dont les octets ont déjà disparu du disque | `file_id` — niveau `warning` |
 | `Expired files purged` | passage du scheduler | nombre supprimé, nombre en échec |
 
-Les huit premières lignes sont implémentées : les quatre routes
-d'authentification, `File uploaded` avec le dépôt de fichier (US01), et les
-trois dernières du parcours de téléchargement (US02). Restent `File deleted` et
-`Expired files purged`, qui arriveront avec leur route et avec le scheduler.
+Les neuf premières lignes sont implémentées : les quatre routes
+d'authentification, `File uploaded` avec le dépôt de fichier (US01), les
+trois du parcours de téléchargement (US02), et `File deleted` avec ses deux
+lignes de garde, `File deletion refused` et `File content already missing`
+(US06). Reste `Expired files purged`, qui arrivera avec le scheduler.
 
 Trois de ces lignes sortent du niveau `info`, et pour des raisons différentes
 qu'il vaut la peine de distinguer.
@@ -524,16 +526,16 @@ la rotation des journaux, le niveau de log de production et le choix du store de
 cache, tous pilotés par variables d'environnement.
 
 Ce document décrit l'architecture cible, celle du contrat d'API. À ce stade,
-huit opérations sur neuf sont implémentées : les quatre d'authentification —
+neuf opérations sur neuf sont implémentées : les quatre d'authentification —
 `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`,
 `POST /api/auth/logout` —, le dépôt de fichier `POST /api/files` (US01), les
 deux du parcours de téléchargement, `GET /api/links/{token}` et
-`POST /api/links/{token}/download` (US02), et l'historique de l'utilisateur,
-`GET /api/files` (US05). Le diagramme de séquence plus haut est donc devenu un
-état des lieux.
+`POST /api/links/{token}/download` (US02), l'historique de l'utilisateur,
+`GET /api/files` (US05), et la suppression manuelle, `DELETE /api/files/{id}`
+(US06). Le diagramme de séquence plus haut est donc devenu un état des lieux.
 
 Sont en revanche en place et opérants, parce qu'ils ne dépendent d'aucune route
 en particulier : les quatre limiteurs de débit, le middleware `NoStore` sur tout
 le groupe `api`, la journalisation des dépassements de quota et le contexte
-d'exception. Ce qui reste attaché à une opération non écrite — la suppression
-manuelle (US06) et le rapport de purge (US10) — arrivera avec elle.
+d'exception. Ce qui reste attaché à une opération non écrite — le rapport de
+purge (US10) — arrivera avec le scheduler.
