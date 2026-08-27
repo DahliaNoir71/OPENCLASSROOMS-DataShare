@@ -255,8 +255,14 @@ paths:
       responses:
         "204": { description: Fichier et métadonnées supprimés (irréversible) }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { description: Le fichier appartient à un autre utilisateur }
-        "404": { description: Fichier inexistant }
+        "404":
+          description: >
+            Identifiant inexistant, fichier appartenant à un autre
+            utilisateur, ou identifiant non numérique : les trois cas
+            répondent le même corps (arbitrage A2, docs/architecture.md). Le
+            fichier d'un autre compte n'est délibérément pas distingué d'un
+            identifiant inexistant, pour ne pas révéler qu'une ligne y
+            correspond.
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /links/{token}:
