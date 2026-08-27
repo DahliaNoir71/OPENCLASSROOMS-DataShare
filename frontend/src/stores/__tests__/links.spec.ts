@@ -3,11 +3,13 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import {
   LinkGoneError,
+  LinkMessageError,
   LinkNotFoundError,
   LinkPasswordError,
   LinkValidationError,
   useLinksStore,
 } from '../links'
+import { NETWORK_ERROR_MESSAGE } from '@/utils/network'
 
 function jsonResponse(status: number, body: unknown): Response {
   return { status, json: () => Promise.resolve(body) } as unknown as Response
@@ -126,6 +128,15 @@ describe('useLinksStore', () => {
         'Réponse inattendue du serveur (statut 500).',
       )
     })
+
+    it('remonte un LinkMessageError avec un message stable sur une panne réseau', async () => {
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+
+      await expect(useLinksStore().metadata('token-abc')).rejects.toMatchObject({
+        name: 'LinkMessageError',
+        message: NETWORK_ERROR_MESSAGE,
+      })
+    })
   })
 
   describe('download', () => {
@@ -232,6 +243,17 @@ describe('useLinksStore', () => {
       await expect(useLinksStore().download('token-abc')).rejects.toThrow(
         'Réponse inattendue du serveur (statut 500).',
       )
+    })
+
+    it('remonte un LinkMessageError avec un message stable sur une panne réseau', async () => {
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+
+      const error = await useLinksStore()
+        .download('token-abc')
+        .catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(LinkMessageError)
+      expect((error as Error).message).toBe(NETWORK_ERROR_MESSAGE)
     })
   })
 })

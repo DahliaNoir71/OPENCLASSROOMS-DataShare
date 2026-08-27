@@ -12,6 +12,11 @@ function jsonResponse(status: number, body: unknown): Response {
   return { status, json: () => Promise.resolve(body) } as unknown as Response
 }
 
+/** Un corps non exploitable (succès tronqué, erreur hors JSON) n'a pas de JSON valide. */
+function nonJsonResponse(status: number): Response {
+  return { status, json: () => Promise.reject(new SyntaxError('Unexpected token')) } as Response
+}
+
 const fetchMock = vi.fn<typeof fetch>()
 
 beforeEach(() => {
@@ -71,6 +76,39 @@ describe('useAuthStore', () => {
     expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
   })
 
+  it('signale un statut inattendu quand le corps du 201 n’est pas du JSON', async () => {
+    fetchMock.mockResolvedValue(nonJsonResponse(201))
+    const store = useAuthStore()
+
+    await expect(
+      store.register('user@example.com', 'motdepasse123', 'motdepasse123'),
+    ).rejects.toThrow('Réponse inattendue du serveur (statut 201).')
+  })
+
+  it("se rabat sur un message français quand le corps du 422 n'est pas du JSON", async () => {
+    fetchMock.mockResolvedValue(nonJsonResponse(422))
+    const store = useAuthStore()
+
+    await expect(
+      store.register('user@example.com', 'motdepasse123', 'motdepasse123'),
+    ).rejects.toMatchObject({
+      name: 'RegisterValidationError',
+      message: 'Erreur de validation.',
+    })
+  })
+
+  it('remonte un AuthMessageError avec un message stable sur une panne réseau', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    const store = useAuthStore()
+
+    await expect(
+      store.register('user@example.com', 'motdepasse123', 'motdepasse123'),
+    ).rejects.toMatchObject({
+      name: 'AuthMessageError',
+      message: 'Connexion au serveur impossible. Vérifie ta connexion et réessaie.',
+    })
+  })
+
   describe('login', () => {
     it('stocke le token et le user, et les persiste, sur une réponse 200', async () => {
       fetchMock.mockResolvedValue(
@@ -128,6 +166,35 @@ describe('useAuthStore', () => {
         RegisterValidationError,
       )
     })
+
+    it('signale un statut inattendu quand le corps du 200 n’est pas du JSON', async () => {
+      fetchMock.mockResolvedValue(nonJsonResponse(200))
+      const store = useAuthStore()
+
+      await expect(store.login('user@example.com', 'motdepasse123')).rejects.toThrow(
+        'Réponse inattendue du serveur (statut 200).',
+      )
+    })
+
+    it("se rabat sur un message français quand le corps du 401 n'est pas du JSON", async () => {
+      fetchMock.mockResolvedValue(nonJsonResponse(401))
+      const store = useAuthStore()
+
+      await expect(store.login('user@example.com', 'mauvais')).rejects.toMatchObject({
+        name: 'AuthMessageError',
+        message: 'Connexion impossible.',
+      })
+    })
+
+    it('remonte un AuthMessageError avec un message stable sur une panne réseau', async () => {
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+      const store = useAuthStore()
+
+      await expect(store.login('user@example.com', 'motdepasse123')).rejects.toMatchObject({
+        name: 'AuthMessageError',
+        message: 'Connexion au serveur impossible. Vérifie ta connexion et réessaie.',
+      })
+    })
   })
 
   describe('restoreSession', () => {
@@ -180,6 +247,17 @@ describe('useAuthStore', () => {
 
       expect(store.token).toBe('jwt-persiste')
       expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe('jwt-persiste')
+    })
+
+    it('laisse le user inchangé quand le corps du 200 n’est pas du JSON', async () => {
+      localStorage.setItem(TOKEN_STORAGE_KEY, 'jwt-persiste')
+      fetchMock.mockResolvedValue(nonJsonResponse(200))
+      const store = useAuthStore()
+
+      await expect(store.restoreSession()).resolves.toBeUndefined()
+
+      expect(store.token).toBe('jwt-persiste')
+      expect(store.user).toBeNull()
     })
 
     it("n'appelle pas /auth/me en l'absence de jeton persisté", async () => {
