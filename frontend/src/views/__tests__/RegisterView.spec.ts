@@ -134,6 +134,17 @@ describe('RegisterView', () => {
     expect(error.text()).toBe('Cet email est déjà utilisé.')
   })
 
+  it('affiche un message stable quand le réseau échoue', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    const wrapper = mountView()
+
+    await fillAndSubmit(wrapper)
+
+    expect(wrapper.find('.form-error-global').text()).toBe(
+      'Connexion au serveur impossible. Vérifie ta connexion et réessaie.',
+    )
+  })
+
   it('persiste le token et déclenche la redirection vers "/" en cas de succès', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(201, { token: 'jwt-test', user: { id: 1, email: 'user@example.com' } }),

@@ -3,7 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppHeader from '@/components/AppHeader.vue'
-import { RegisterValidationError, useAuthStore } from '@/stores/auth'
+import { AuthMessageError, RegisterValidationError, useAuthStore } from '@/stores/auth'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -68,6 +68,8 @@ async function onSubmit(): Promise<void> {
       fieldErrors.email = error.errors.email ?? []
       fieldErrors.password = error.errors.password ?? []
       fieldErrors.passwordConfirmation = error.errors.password_confirmation ?? []
+    } else if (error instanceof AuthMessageError) {
+      globalError.value = error.message
     } else {
       globalError.value = 'Une erreur est survenue. Veuillez réessayer plus tard.'
     }

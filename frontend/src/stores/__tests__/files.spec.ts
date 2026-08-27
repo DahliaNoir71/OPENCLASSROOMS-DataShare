@@ -14,6 +14,7 @@ import {
   UploadValidationError,
   useFilesStore,
 } from '../files'
+import { NETWORK_ERROR_MESSAGE } from '@/utils/network'
 
 function jsonResponse(status: number, body: unknown): Response {
   return { status, json: () => Promise.resolve(body) } as unknown as Response
@@ -162,6 +163,17 @@ describe('useFilesStore', () => {
     expect((error as Error).message).toBe('Réponse inattendue du serveur (statut 500).')
   })
 
+  it('remonte un UploadMessageError avec un message stable sur une panne réseau', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+
+    const error = await useFilesStore()
+      .upload(pdf(), { expiresInDays: 7 })
+      .catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(UploadMessageError)
+    expect((error as Error).message).toBe(NETWORK_ERROR_MESSAGE)
+  })
+
   describe('list', () => {
     const filesPage = {
       data: [uploadedFile],
@@ -240,6 +252,17 @@ describe('useFilesStore', () => {
       expect(error).not.toBeInstanceOf(ListValidationError)
       expect((error as Error).message).toBe('Réponse inattendue du serveur (statut 500).')
     })
+
+    it('remonte un ListMessageError avec un message stable sur une panne réseau', async () => {
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+
+      const error = await useFilesStore()
+        .list()
+        .catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(ListMessageError)
+      expect((error as Error).message).toBe(NETWORK_ERROR_MESSAGE)
+    })
   })
 
   describe('remove', () => {
@@ -300,6 +323,17 @@ describe('useFilesStore', () => {
 
       expect(error).not.toBeInstanceOf(RemoveNotFoundError)
       expect((error as Error).message).toBe('Réponse inattendue du serveur (statut 500).')
+    })
+
+    it('remonte un RemoveMessageError avec un message stable sur une panne réseau', async () => {
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+
+      const error = await useFilesStore()
+        .remove(1)
+        .catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(RemoveMessageError)
+      expect((error as Error).message).toBe(NETWORK_ERROR_MESSAGE)
     })
   })
 })

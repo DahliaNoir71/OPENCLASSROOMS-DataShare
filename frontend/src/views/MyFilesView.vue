@@ -7,7 +7,9 @@ import { useAuthStore } from '@/stores/auth'
 import {
   ListMessageError,
   ListUnauthenticatedError,
+  ListValidationError,
   RemoveMessageError,
+  RemoveNotFoundError,
   RemoveUnauthenticatedError,
   useFilesStore,
   type FilesPage,
@@ -41,6 +43,8 @@ const globalError = ref('')
 const filesPage = ref<FilesPage | null>(null)
 const copiedId = ref<number | null>(null)
 const removingId = ref<number | null>(null)
+const copyError = ref('')
+const copyErrorId = ref<number | null>(null)
 
 let copyResetTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -53,6 +57,14 @@ async function fetchPage(): Promise<void> {
   } catch (error) {
     if (error instanceof ListUnauthenticatedError) {
       await router.push({ path: '/login', query: { redirect: route.fullPath } })
+    } else if (error instanceof ListValidationError) {
+      // Une page ou un statut périmé (ex. dernière page devenue invalide après
+      // une suppression) : on retombe sur les valeurs par défaut du filtre.
+      status.value = 'all'
+      page.value = 1
+      await fetchPage()
+      globalError.value = error.message
+      return
     } else if (error instanceof ListMessageError) {
       globalError.value = error.message
     } else {
@@ -79,9 +91,14 @@ function goToPage(target: number): void {
 }
 
 async function copyLink(file: FilesPage['data'][number]): Promise<void> {
+  copyError.value = ''
+  copyErrorId.value = null
+
   try {
     await navigator.clipboard.writeText(file.link)
   } catch {
+    copyError.value = 'La copie a échoué, copie le lien manuellement.'
+    copyErrorId.value = file.id
     return
   }
 
@@ -109,12 +126,15 @@ async function removeFile(file: FilesPage['data'][number]): Promise<void> {
   } catch (error) {
     if (error instanceof RemoveUnauthenticatedError) {
       await router.push({ path: '/login', query: { redirect: route.fullPath } })
-    } else if (error instanceof RemoveMessageError) {
-      globalError.value = error.message
-    } else {
+    } else if (error instanceof RemoveNotFoundError) {
       // Un 404 signale une liste périmée (fichier déjà supprimé ailleurs),
       // pas un problème de droits : on se contente de la rafraîchir.
       await fetchPage()
+    } else if (error instanceof RemoveMessageError) {
+      globalError.value = error.message
+    } else {
+      await fetchPage()
+      globalError.value = 'Une erreur est survenue. Veuillez réessayer plus tard.'
     }
   } finally {
     removingId.value = null
@@ -165,28 +185,34 @@ onMounted(() => {
 
           <ul v-else class="file-list">
             <li v-for="file in filesPage.data" :key="file.id" class="file-row">
-              <div class="file-row-main">
-                <span class="file-row-name">{{ file.original_name }}</span>
-                <span class="file-row-meta">
-                  {{ formatFileSize(file.size) }} · expire le {{ formatDate(file.expires_at) }}
-                </span>
+              <div class="file-row-top">
+                <div class="file-row-main">
+                  <span class="file-row-name">{{ file.original_name }}</span>
+                  <span class="file-row-meta">
+                    {{ formatFileSize(file.size) }} · expire le {{ formatDate(file.expires_at) }}
+                  </span>
+                </div>
+
+                <div class="file-row-actions">
+                  <span v-if="file.expired" class="file-row-expired">Expiré</span>
+                  <button v-else type="button" class="file-row-copy-button" @click="copyLink(file)">
+                    {{ copiedId === file.id ? 'Lien copié !' : 'Copier le lien' }}
+                  </button>
+
+                  <button
+                    type="button"
+                    class="file-row-delete-button"
+                    :disabled="removingId === file.id"
+                    @click="removeFile(file)"
+                  >
+                    Supprimer
+                  </button>
+                </div>
               </div>
 
-              <div class="file-row-actions">
-                <span v-if="file.expired" class="file-row-expired">Expiré</span>
-                <button v-else type="button" class="file-row-copy-button" @click="copyLink(file)">
-                  {{ copiedId === file.id ? 'Lien copié !' : 'Copier le lien' }}
-                </button>
-
-                <button
-                  type="button"
-                  class="file-row-delete-button"
-                  :disabled="removingId === file.id"
-                  @click="removeFile(file)"
-                >
-                  Supprimer
-                </button>
-              </div>
+              <p v-if="copyErrorId === file.id" class="file-row-copy-error" role="alert">
+                {{ copyError }}
+              </p>
             </li>
           </ul>
 
@@ -297,13 +323,28 @@ onMounted(() => {
 
 .file-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-md);
+  flex-direction: column;
+  gap: var(--ds-space-xs);
   padding: var(--ds-space-md);
   border-radius: var(--ds-radius-input);
   background: var(--ds-color-file-row-bg);
   border: var(--ds-border-width) solid var(--ds-color-file-row-border);
+}
+
+.file-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-md);
+}
+
+.file-row-copy-error {
+  margin: 0;
+  color: var(--ds-color-error-text);
+  font-family: var(--ds-font-family-heading);
+  font-size: var(--ds-font-size-small);
+  line-height: var(--ds-line-height-small);
+  font-weight: var(--ds-font-weight-small);
 }
 
 .file-row-main {

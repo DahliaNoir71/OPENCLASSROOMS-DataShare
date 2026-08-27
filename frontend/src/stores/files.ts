@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 
+import { NETWORK_ERROR_MESSAGE } from '@/utils/network'
 import { readJson } from '@/utils/readJson'
 
 import { useAuthStore, type ValidationErrors } from './auth'
@@ -161,17 +162,22 @@ export const useFilesStore = defineStore('files', () => {
     }
     body.append('expires_in_days', String(options.expiresInDays))
 
-    const response = await fetch('/api/files', {
-      method: 'POST',
-      // Aucun Content-Type ici : le navigateur doit le poser lui-même pour y
-      // joindre le boundary multipart. Le fixer à la main rend le corps
-      // illisible côté serveur.
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${authStore.token ?? ''}`,
-      },
-      body,
-    })
+    let response: Response
+    try {
+      response = await fetch('/api/files', {
+        method: 'POST',
+        // Aucun Content-Type ici : le navigateur doit le poser lui-même pour y
+        // joindre le boundary multipart. Le fixer à la main rend le corps
+        // illisible côté serveur.
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${authStore.token ?? ''}`,
+        },
+        body,
+      })
+    } catch {
+      throw new UploadMessageError(NETWORK_ERROR_MESSAGE)
+    }
 
     if (response.status === 201) {
       const data = (await response.json()) as UploadResponse
@@ -216,12 +222,17 @@ export const useFilesStore = defineStore('files', () => {
     }
 
     const query = params.toString()
-    const response = await fetch(`/api/files${query ? `?${query}` : ''}`, {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${authStore.token ?? ''}`,
-      },
-    })
+    let response: Response
+    try {
+      response = await fetch(`/api/files${query ? `?${query}` : ''}`, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${authStore.token ?? ''}`,
+        },
+      })
+    } catch {
+      throw new ListMessageError(NETWORK_ERROR_MESSAGE)
+    }
 
     if (response.status === 200) {
       return (await response.json()) as FilesPage
@@ -248,13 +259,18 @@ export const useFilesStore = defineStore('files', () => {
   }
 
   async function remove(id: number): Promise<void> {
-    const response = await fetch(`/api/files/${id}`, {
-      method: 'DELETE',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${authStore.token ?? ''}`,
-      },
-    })
+    let response: Response
+    try {
+      response = await fetch(`/api/files/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${authStore.token ?? ''}`,
+        },
+      })
+    } catch {
+      throw new RemoveMessageError(NETWORK_ERROR_MESSAGE)
+    }
 
     if (response.status === 204) {
       return
