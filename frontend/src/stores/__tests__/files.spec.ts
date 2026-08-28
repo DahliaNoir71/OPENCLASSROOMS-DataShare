@@ -220,7 +220,7 @@ describe('useFilesStore', () => {
   })
 
   it('reporte la progression arrondie au callback pendant l’envoi', async () => {
-    const onProgress = vi.fn()
+    const onProgress = vi.fn<(percent: number) => void>()
 
     const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7, onProgress })
     const xhr = lastXhr()
@@ -236,7 +236,7 @@ describe('useFilesStore', () => {
   })
 
   it("n'appelle jamais le callback de progression quand la taille totale n'est pas calculable", async () => {
-    const onProgress = vi.fn()
+    const onProgress = vi.fn<(percent: number) => void>()
 
     const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7, onProgress })
     const xhr = lastXhr()
