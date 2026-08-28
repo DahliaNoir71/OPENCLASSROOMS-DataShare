@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppCallout from '@/components/AppCallout.vue'
+import AppFooter from '@/components/AppFooter.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import {
   LinkGoneError,
@@ -220,7 +221,7 @@ onMounted(() => {
       </section>
     </main>
 
-    <footer class="app-footer">Copyright DataShare® 2025</footer>
+    <AppFooter />
   </div>
 </template>
 
@@ -413,11 +414,6 @@ onMounted(() => {
   color: var(--ds-color-disabled-text);
 }
 
-.app-footer {
-  display: none;
-  color: var(--ds-color-text-inverse);
-}
-
 @media (min-width: 768px) {
   .download-main {
     align-items: center;
@@ -425,12 +421,6 @@ onMounted(() => {
 
   .download-card {
     max-width: 420px;
-  }
-
-  .app-footer {
-    display: block;
-    padding: 1rem;
-    text-align: center;
   }
 }
 </style>
