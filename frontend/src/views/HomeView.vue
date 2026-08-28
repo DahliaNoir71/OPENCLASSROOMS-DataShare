@@ -31,11 +31,11 @@ function onUploadClick(): void {
   <div class="home-page">
     <AppHeader />
 
-    <main v-if="showUploadCard" class="home-main">
+    <main v-if="showUploadCard" id="main-content" class="home-main" tabindex="-1">
       <UploadCard />
     </main>
 
-    <main v-else class="home-hero">
+    <main v-else id="main-content" class="home-hero" tabindex="-1">
       <h1 class="home-title">Tu veux partager un fichier ?</h1>
 
       <button
@@ -102,6 +102,7 @@ function onUploadClick(): void {
 .home-upload-button {
   width: calc(var(--ds-space-lg) * 4);
   height: calc(var(--ds-space-lg) * 4);
+  border: none;
   border-radius: 50%;
   display: flex;
   align-items: center;
