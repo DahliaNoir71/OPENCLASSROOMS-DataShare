@@ -93,4 +93,25 @@ return [
         'chunk' => (int) env('DATASHARE_PURGE_CHUNK', 1000),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Limitation de débit (AppServiceProvider)
+    |--------------------------------------------------------------------------
+    |
+    | Plafonds des cinq limiteurs, lus en configuration et jamais en littéral
+    | pour la même raison que 'max_bytes' plus haut : qu'une campagne de charge
+    | puisse les relever pour mesurer un comportement sous forte charge, sans
+    | toucher au code — puis les remettre à leur défaut une fois la campagne
+    | terminée.
+    |
+    */
+
+    'throttle' => [
+        'api' => (int) env('DATASHARE_THROTTLE_API', 60),
+        'auth' => (int) env('DATASHARE_THROTTLE_AUTH', 5),
+        'uploads' => (int) env('DATASHARE_THROTTLE_UPLOADS', 10),
+        'downloads_per_token' => (int) env('DATASHARE_THROTTLE_DOWNLOADS_PER_TOKEN', 10),
+        'downloads_per_ip' => (int) env('DATASHARE_THROTTLE_DOWNLOADS_PER_IP', 30),
+    ],
+
 ];
