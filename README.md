@@ -1,5 +1,7 @@
 # DataShare
 
+![CI](https://github.com/DahliaNoir71/OPENCLASSROOMS-DataShare/actions/workflows/pr.yml/badge.svg)
+
 DataShare permet de transmettre un fichier volumineux sans le joindre à un
 courriel : un utilisateur authentifié dépose un fichier (1 Go maximum) et
 obtient en retour un lien de téléchargement temporaire, valable 7 jours au plus
@@ -10,7 +12,7 @@ Projet réalisé dans le cadre du parcours OpenClassrooms.
 ## Documentation de conception
 
 Les documents de [`docs/`](docs/) font autorité sur les choix fonctionnels et
-techniques. Trois documents qualité vivent à la racine du dépôt, à l'endroit où
+techniques. Quatre documents qualité vivent à la racine du dépôt, à l'endroit où
 on les attend. Le présent README ne traite que de la mise en route.
 
 | Document | Contenu |
@@ -20,9 +22,10 @@ on les attend. Le présent README ne traite que de la mise en route.
 | [docs/openapi.yaml](docs/openapi.yaml) | Contrat d'API (OpenAPI 3.1) — 9 opérations |
 | [docs/design-tokens.md](docs/design-tokens.md) | Jetons de design de la SPA (couleurs, typographie, espacements) |
 | [docs/utilisation-ia.md](docs/utilisation-ia.md) | Posture d'usage de l'IA générative dans le développement, cycle en trois phases par user story, supervision et correctifs, apports et limites constatés |
-| [SECURITY.md](SECURITY.md) | Limites de sécurité assumées, au fil des lots fonctionnels |
-| [PERF.md](PERF.md) | Budgets et arbitrages de performance, au fil des lots fonctionnels |
-| [MAINTENANCE.md](MAINTENANCE.md) | Exploitation : entrée cron du scheduler, purge quotidienne, mise à jour des dépendances |
+| [TESTING.md](TESTING.md) | Plan de tests, matrice US × niveau, couverture, critères de sortie |
+| [SECURITY.md](SECURITY.md) | Compte rendu de scans en trois seaux (corrigées / acceptées / ignorées) et limites de sécurité assumées |
+| [PERF.md](PERF.md) | Campagne k6, logs structurés JSON, arbitrages de performance |
+| [MAINTENANCE.md](MAINTENANCE.md) | Exploitation (entrée cron du scheduler, purge quotidienne) et veille automatisée des dépendances |
 
 ## État du projet
 
@@ -341,9 +344,24 @@ qu'on veut un code de sortie exploitable — d'où `npx vitest run`.
 `test:e2e` construit puis sert l'application avant de lancer Cypress ; le binaire
 Cypress doit avoir été installé (cf. installation du frontend).
 
+Suites avec couverture, seuils bloquants (70 %) :
+
+```bash
+composer run test:coverage   # backend
+npm run test:coverage        # frontend
+```
+
+[TESTING.md](TESTING.md) fait autorité sur la stratégie de tests, la matrice
+US × niveau et les critères d'acceptation — ce README ne garde que les
+commandes de lancement. La CI (`pr.yml`) rejoue l'ensemble de ces suites à
+chaque pull request.
+
 ## Qualité de code
 
-Ces commandes se lancent à la main, à l'appréciation de qui développe.
+Ces commandes se lancent à la main en local ; elles sont aussi rejouées
+automatiquement en CI — `push.yml` en feedback rapide (lint + tests
+unitaires), `pr.yml` de façon complète, avec le check `ci-ok` requis au
+merge sur `main`.
 
 ### Backend
 
@@ -358,6 +376,7 @@ cd backend
 ```bash
 cd frontend
 npm run lint               # oxlint puis ESLint, avec correction automatique
+npm run lint:check         # vérification seule, sans correction (utilisé en CI)
 npm run format             # Prettier sur src/
 ```
 
@@ -450,17 +469,9 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       de `routes/web.php`
 - [x] Mettre à jour [docs/architecture.md](docs/architecture.md), qui indiquait
       encore qu'aucun paquet JWT n'était installé
-- [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
-      sans laquelle aucune purge n'a lieu → ligne exacte dans
-      [MAINTENANCE.md](MAINTENANCE.md)
 - [x] Compléter la piste d'audit avec `Expired files purged` → la piste
       d'audit est complète, convention dans
       [docs/architecture.md](docs/architecture.md#la-piste-daudit)
-- [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=info` — et non `warning`,
-      qui ferait taire la piste d'audit —, canal `daily` ou `stderr`, et
-      `CACHE_STORE=redis` si la charge le justifie
-- [ ] Déclarer une URL de production dans `servers` du contrat d'API, au premier
-      déploiement — l'unique entrée pointe aujourd'hui sur `localhost`
 - [x] Micro-lot `fix/US01-expiration-bounds` : `expires_in_days` transmis vide
       crée un fichier déjà expiré (le défaut de 7 jours ne s'applique que si
       le champ est absent, pas s'il est `null`), et `default_expiry_days` /
@@ -469,6 +480,17 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [x] Nettoyer les répertoires `AAAA/MM/JJ` vides que la purge laisse derrière
       elle sur le disque `uploads` : `FileStorageService::delete()` efface les
       fichiers, jamais les répertoires qui les contenaient
+
+### Au premier déploiement
+
+- [ ] Prévoir en déploiement l'entrée cron appelant `schedule:run` chaque minute,
+      sans laquelle aucune purge n'a lieu → ligne exacte dans
+      [MAINTENANCE.md](MAINTENANCE.md)
+- [ ] En déploiement : `APP_DEBUG=false`, `LOG_LEVEL=info` — et non `warning`,
+      qui ferait taire la piste d'audit —, canal `daily` ou `stderr`, et
+      `CACHE_STORE=redis` si la charge le justifie
+- [ ] Déclarer une URL de production dans `servers` du contrat d'API, au premier
+      déploiement — l'unique entrée pointe aujourd'hui sur `localhost`
 
 ## Licence
 
