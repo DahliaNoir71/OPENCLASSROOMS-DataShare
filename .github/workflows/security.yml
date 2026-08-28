@@ -45,7 +45,7 @@ jobs:
       # code binaire de la commande elle-même, aucun seuil de sévérité natif).
       - name: composer audit
         working-directory: backend
-        run: composer audit
+        run: composer audit --locked
 
       - uses: actions/setup-node@v4
         with:
