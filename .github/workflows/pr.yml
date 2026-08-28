@@ -1,12 +1,16 @@
-name: CI
+name: PR
+
+# Pull request vers main (+ post-merge) : pipeline complet — lint, tests,
+# PostgreSQL, e2e, sécurité. ci-ok est le check unique de protection de main.
 
 on:
   pull_request:
-  push:
     branches: [main]
+  push:
+    branches: [main] # revalidation post-merge (le commit de merge d'une PR est un push sur main)
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: pr-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -168,6 +172,10 @@ jobs:
           name: frontend-coverage
           path: frontend/coverage/
 
+  security:
+    name: Sécurité (audits + Trivy + Gitleaks)
+    uses: ./.github/workflows/security.yml
+
   e2e:
     name: End-to-end (Cypress)
     needs: [changes, lint-backend, lint-frontend, backend-tests, backend-pgsql, frontend-tests]
@@ -251,7 +259,7 @@ jobs:
 
   ci-ok:
     name: CI OK (check unique de protection de branche)
-    needs: [changes, lint-backend, lint-frontend, backend-tests, backend-pgsql, frontend-tests, e2e]
+    needs: [changes, lint-backend, lint-frontend, backend-tests, backend-pgsql, frontend-tests, security, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:

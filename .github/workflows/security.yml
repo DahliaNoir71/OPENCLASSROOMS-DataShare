@@ -1,17 +1,31 @@
 name: Security
 
+# Bloc sécurité réutilisable : appelé par pr.yml (uses:) et rejoué seul
+# chaque semaine (dérive entre deux PR).
+#
+# Pas de concurrency ici, délibérément (point tranché sur chore/ci) :
+# - en appel workflow_call, l'isolation est déjà assurée par le groupe de
+#   concurrency de pr.yml (pr-${{ github.ref }}, cancel-in-progress) : ce
+#   job hérite du cycle de vie de ce run, un groupe supplémentaire ici
+#   n'apporterait rien et ouvrirait une interaction appelant/appelé non
+#   documentée par GitHub (le comportement de concurrency à l'intérieur
+#   d'un workflow réutilisable n'est pas garanti indépendant du run
+#   appelant) ;
+# - en schedule, la cadence hebdomadaire rend un chevauchement entre deux
+#   exécutions planifiées quasi impossible, et sans conséquence si cela
+#   arrivait (deux scans en parallèle, aucun état partagé, aucune porte
+#   comme e2e/ci-ok qui en dépendrait) — contrairement au risque identifié
+#   sur les jobs rapides de push.yml, ici une éventuelle collision entre le
+#   run programmé et l'appel post-merge (push sur main, même ref que le
+#   schedule) n'annule aucun check requis : security n'apparaît que dans
+#   ci-ok de pr.yml, jamais dans le run schedule autonome.
+
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_call:
   schedule:
     # Détection de dérive entre deux PR (CVE publiée sur une dépendance déjà
     # mergée) : tous les lundis à 06:00 UTC.
     - cron: '0 6 * * 1'
-
-concurrency:
-  group: security-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   security:
