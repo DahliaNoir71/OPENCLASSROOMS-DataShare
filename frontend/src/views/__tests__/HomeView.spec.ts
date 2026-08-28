@@ -38,10 +38,10 @@ afterEach(() => {
 })
 
 describe('HomeView', () => {
-  it('rend l\'accroche "Tu veux partager un fichier ?"', () => {
+  it('rend l\'accroche "Veux-tu partager un fichier ?"', () => {
     const wrapper = mountView()
 
-    expect(wrapper.find('h1').text()).toBe('Tu veux partager un fichier ?')
+    expect(wrapper.find('h1').text()).toBe('Veux-tu partager un fichier ?')
   })
 
   it("affiche le bouton d'upload sans carte ouverte", () => {
