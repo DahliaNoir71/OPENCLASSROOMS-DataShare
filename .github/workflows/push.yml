@@ -1,0 +1,142 @@
+name: Push
+
+# Push (hors main) : feedback rapide — lint + tests unitaires, sans
+# e2e/pgsql/sécurité (pipeline complet réservé à pr.yml).
+#
+# Garde anti-doublon (option d, actée sur chore/ci) : ces jobs se rejouent à
+# l'identique dans pr.yml pendant qu'une PR est ouverte sur cette branche
+# (push et pull_request se déclenchent tous deux sur le même push). Coût
+# accepté et documenté plutôt que corrigé par une garde active :
+# - un concurrency group partagé par SHA entre push.yml et pr.yml ferait
+#   gagner la course au run qui démarre en second, sans garantie sur lequel —
+#   s'il annule côté pr.yml, les jobs requis par `e2e` et `ci-ok` se
+#   retrouvent "cancelled" côté PR, cassant la porte de protection de main ;
+# - une condition API (lister les PR ouvertes sur la branche) ajoute une
+#   dépendance externe et une latence à chaque push, pour économiser
+#   ~4 min de calcul.
+# Dépôt personnel aux minutes gratuites : le doublon est sans risque financier
+# et sans effet de bord, contrairement aux deux gardes ci-dessus.
+
+on:
+  push:
+    branches-ignore: [main]
+
+concurrency:
+  group: push-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Détection des chemins modifiés
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      workflow: ${{ steps.filter.outputs.workflow }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            workflow:
+              - '.github/workflows/**'
+
+  lint-backend:
+    name: Lint backend (Pint)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+      - name: composer install
+        working-directory: backend
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Pint (vérification seule, aucune correction en CI)
+        working-directory: backend
+        run: ./vendor/bin/pint --test
+
+  lint-frontend:
+    name: Lint frontend (oxlint + ESLint + type-check)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm ci
+        working-directory: frontend
+        run: npm ci
+      - name: Lint (oxlint + ESLint, vérification seule)
+        working-directory: frontend
+        run: npm run lint:check
+      - name: Vérification des types (vue-tsc)
+        working-directory: frontend
+        run: npm run type-check
+
+  backend-tests:
+    name: Tests backend (SQLite, couverture)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+          extensions: mbstring, pdo_sqlite, pdo_pgsql, bcmath
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+      - name: composer install
+        working-directory: backend
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Suite complète avec couverture (porte --min=70)
+        working-directory: backend
+        run: composer run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+
+  frontend-tests:
+    name: Tests frontend (Vitest, couverture)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm ci
+        working-directory: frontend
+        run: npm ci
+      - name: Suite complète avec couverture (portes 70 % × 4)
+        working-directory: frontend
+        run: npm run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
