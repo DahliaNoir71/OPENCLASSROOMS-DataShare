@@ -34,6 +34,7 @@ class ListFilesRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'status.string' => 'Le filtre doit être une chaîne de caractères.',
             'status.in' => 'Le filtre demandé est invalide.',
             'page.integer' => 'Le numéro de page doit être un nombre entier.',
             'page.min' => 'Le numéro de page doit être supérieur ou égal à 1.',

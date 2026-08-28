@@ -359,6 +359,17 @@ class ListFilesTest extends TestCase
         $response->assertJsonValidationErrors(['status']);
     }
 
+    public function test_a_non_string_status_returns_422_with_the_french_message(): void
+    {
+        $token = $this->login($this->user());
+
+        $response = $this->withToken($token)->getJson('/api/files?status[]=x');
+
+        $response->assertUnprocessable();
+        $response->assertJsonValidationErrors(['status']);
+        $response->assertJsonPath('errors.status.0', 'Le filtre doit être une chaîne de caractères.');
+    }
+
     public function test_the_listing_without_authentication_returns_401(): void
     {
         $response = $this->getJson($this->url());
