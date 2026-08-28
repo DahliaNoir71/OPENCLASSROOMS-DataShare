@@ -341,7 +341,7 @@ describe('UploadCard', () => {
 
     const live = wrapper.find('[role="status"]')
     expect(live.attributes('aria-live')).toBe('polite')
-    expect(live.text()).toBe('Félicitations, ton fichier est en ligne !')
+    expect(live.text()).toBe('Félicitations, votre fichier est en ligne !')
   })
 
   it("mentionne la durée choisie quand elle n'est pas celle par défaut", async () => {
@@ -371,7 +371,7 @@ describe('UploadCard', () => {
     await flushPromises()
 
     expect(wrapper.find('.upload-success .form-error').text()).toBe(
-      'La copie a échoué, copie le lien manuellement.',
+      'La copie a échoué, copiez le lien manuellement.',
     )
   })
 

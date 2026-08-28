@@ -2,6 +2,7 @@
 import { onMounted, ref, useTemplateRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import AppFooter from '@/components/AppFooter.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -20,7 +21,7 @@ import { formatFileSize } from '@/utils/formatFileSize'
 const STATUS_OPTIONS: { value: FileStatus; label: string }[] = [
   { value: 'all', label: 'Tous' },
   { value: 'active', label: 'Actifs' },
-  { value: 'expired', label: 'Expiré' },
+  { value: 'expired', label: 'Expirés' },
 ]
 
 const COPY_FEEDBACK_MS = 2000
@@ -162,7 +163,7 @@ async function copyLink(file: FilesPage['data'][number]): Promise<void> {
   try {
     await navigator.clipboard.writeText(file.link)
   } catch {
-    copyError.value = 'La copie a échoué, copie le lien manuellement.'
+    copyError.value = 'La copie a échoué, copiez le lien manuellement.'
     copyErrorId.value = file.id
     return
   }
@@ -381,7 +382,7 @@ onMounted(() => {
       </div>
     </dialog>
 
-    <footer class="app-footer">Copyright DataShare® 2025</footer>
+    <AppFooter />
   </div>
 </template>
 
@@ -628,11 +629,6 @@ onMounted(() => {
   font-weight: var(--ds-font-weight-small);
 }
 
-.app-footer {
-  display: none;
-  color: var(--ds-color-text-inverse);
-}
-
 .confirm-dialog {
   width: 100%;
   max-width: 400px;
@@ -697,13 +693,5 @@ onMounted(() => {
 .confirm-dialog-confirm:focus-visible {
   outline: 2px solid var(--ds-color-accent-border);
   outline-offset: 2px;
-}
-
-@media (min-width: 768px) {
-  .app-footer {
-    display: block;
-    padding: 1rem;
-    text-align: center;
-  }
 }
 </style>

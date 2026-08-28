@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppCallout from '@/components/AppCallout.vue'
+import AppFooter from '@/components/AppFooter.vue'
 import AppHeader from '@/components/AppHeader.vue'
 </script>
 
@@ -22,7 +23,7 @@ import AppHeader from '@/components/AppHeader.vue'
       </section>
     </main>
 
-    <footer class="app-footer">Copyright DataShare® 2025</footer>
+    <AppFooter />
   </div>
 </template>
 
@@ -75,11 +76,6 @@ import AppHeader from '@/components/AppHeader.vue'
   outline-offset: 2px;
 }
 
-.app-footer {
-  display: none;
-  color: var(--ds-color-text-inverse);
-}
-
 @media (min-width: 768px) {
   .not-found-main {
     align-items: center;
@@ -87,12 +83,6 @@ import AppHeader from '@/components/AppHeader.vue'
 
   .not-found-card {
     max-width: 420px;
-  }
-
-  .app-footer {
-    display: block;
-    padding: 1rem;
-    text-align: center;
   }
 }
 </style>

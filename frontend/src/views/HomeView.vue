@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import AppFooter from '@/components/AppFooter.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import UploadCard from '@/components/UploadCard.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -36,7 +37,7 @@ function onUploadClick(): void {
     </main>
 
     <main v-else id="main-content" class="home-hero" tabindex="-1">
-      <h1 class="home-title">Veux-tu partager un fichier ?</h1>
+      <h1 class="home-title">Voulez-vous partager un fichier ?</h1>
 
       <button
         class="home-upload-button"
@@ -61,7 +62,7 @@ function onUploadClick(): void {
       </button>
     </main>
 
-    <footer class="app-footer">Copyright DataShare® 2025</footer>
+    <AppFooter />
   </div>
 </template>
 
@@ -122,11 +123,6 @@ function onUploadClick(): void {
   color: var(--ds-color-primary-text);
 }
 
-.app-footer {
-  display: none;
-  color: var(--ds-color-text-inverse);
-}
-
 @media (min-width: 768px) {
   .home-main {
     align-items: center;
@@ -134,12 +130,6 @@ function onUploadClick(): void {
 
   .home-main > * {
     max-width: 420px;
-  }
-
-  .app-footer {
-    display: block;
-    padding: 1rem;
-    text-align: center;
   }
 }
 </style>

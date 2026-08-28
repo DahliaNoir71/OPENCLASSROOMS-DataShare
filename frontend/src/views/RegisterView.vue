@@ -2,6 +2,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import AppFooter from '@/components/AppFooter.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { AuthMessageError, RegisterValidationError, useAuthStore } from '@/stores/auth'
 import { EMAIL_REGEX } from '@/utils/email'
@@ -124,7 +125,7 @@ async function onSubmit(): Promise<void> {
           </div>
 
           <div class="form-field">
-            <label for="register-password-confirmation">Verification du mot de passe</label>
+            <label for="register-password-confirmation">Vérification du mot de passe</label>
             <input
               id="register-password-confirmation"
               v-model="passwordConfirmation"
@@ -157,7 +158,7 @@ async function onSubmit(): Promise<void> {
       </section>
     </main>
 
-    <footer class="app-footer">Copyright DataShare® 2025</footer>
+    <AppFooter />
   </div>
 </template>
 
@@ -305,11 +306,6 @@ async function onSubmit(): Promise<void> {
   color: var(--ds-color-disabled-text);
 }
 
-.app-footer {
-  display: none;
-  color: var(--ds-color-text-inverse);
-}
-
 @media (min-width: 768px) {
   .register-main {
     align-items: center;
@@ -317,12 +313,6 @@ async function onSubmit(): Promise<void> {
 
   .register-card {
     max-width: 420px;
-  }
-
-  .app-footer {
-    display: block;
-    padding: var(--ds-space-md);
-    text-align: center;
   }
 }
 </style>
