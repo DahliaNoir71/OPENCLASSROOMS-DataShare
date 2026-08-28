@@ -26,7 +26,7 @@ describe('Parcours de partage de fichier', () => {
     cy.contains('button', 'Se déconnecter').should('be.visible')
 
     // 2. Téléversement
-    cy.contains('h1', 'Tu veux partager un fichier ?')
+    cy.contains('h1', 'Veux-tu partager un fichier ?')
     cy.get('button[aria-label="Téléverser un fichier"]').click()
 
     cy.get('#upload-file').selectFile(`cypress/fixtures/${FIXTURE}`)

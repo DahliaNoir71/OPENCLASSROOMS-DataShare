@@ -21,6 +21,8 @@ export interface UploadedFile {
 export interface UploadOptions {
   password?: string
   expiresInDays: number
+  /** Pourcentage entier (0-100) de l'envoi, uniquement si l'événement le permet (`lengthComputable`). */
+  onProgress?: (percent: number) => void
 }
 
 interface UploadResponse {
@@ -153,10 +155,19 @@ export class RemoveNotFoundError extends Error {
   }
 }
 
+/** Pendant de `readJson` pour un corps XHR déjà reçu en texte (413 avant l'application, par exemple). */
+function readXhrJson<T>(xhr: XMLHttpRequest): T | null {
+  try {
+    return JSON.parse(xhr.responseText) as T
+  } catch {
+    return null
+  }
+}
+
 export const useFilesStore = defineStore('files', () => {
   const authStore = useAuthStore()
 
-  async function upload(file: File, options: UploadOptions): Promise<UploadedFile> {
+  function upload(file: File, options: UploadOptions): Promise<UploadedFile> {
     const body = new FormData()
     body.append('file', file)
     if (options.password) {
@@ -164,51 +175,67 @@ export const useFilesStore = defineStore('files', () => {
     }
     body.append('expires_in_days', String(options.expiresInDays))
 
-    let response: Response
-    try {
-      response = await fetch('/api/files', {
-        method: 'POST',
-        // Aucun Content-Type ici : le navigateur doit le poser lui-même pour y
-        // joindre le boundary multipart. Le fixer à la main rend le corps
-        // illisible côté serveur.
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${authStore.token ?? ''}`,
-        },
-        body,
-      })
-    } catch {
-      throw new UploadMessageError(NETWORK_ERROR_MESSAGE)
-    }
+    return new Promise<UploadedFile>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', '/api/files')
+      // Aucun Content-Type ici : le navigateur doit le poser lui-même pour y
+      // joindre le boundary multipart. Le fixer à la main rend le corps
+      // illisible côté serveur.
+      xhr.setRequestHeader('Accept', 'application/json')
+      xhr.setRequestHeader('Authorization', `Bearer ${authStore.token ?? ''}`)
 
-    if (response.status === 201) {
-      const data = (await response.json()) as UploadResponse
-      return data.data
-    }
+      xhr.upload.onprogress = (event: ProgressEvent) => {
+        if (event.lengthComputable) {
+          options.onProgress?.(Math.round((event.loaded / event.total) * 100))
+        }
+      }
 
-    if (response.status === 401) {
-      authStore.clearSession()
-      throw new UploadUnauthenticatedError('Session expirée. Connecte-toi de nouveau.')
-    }
+      xhr.onerror = () => {
+        reject(new UploadMessageError(NETWORK_ERROR_MESSAGE))
+      }
 
-    if (response.status === 422) {
-      const data = await readJson<ValidationErrorResponse>(response)
-      throw new UploadValidationError(data?.message ?? 'Erreur de validation.', data?.errors ?? {})
-    }
+      xhr.onload = () => {
+        if (xhr.status === 201) {
+          const data = JSON.parse(xhr.responseText) as UploadResponse
+          resolve(data.data)
+          return
+        }
 
-    if (response.status === 413) {
-      const data = await readJson<MessageResponse>(response)
-      throw new UploadMessageError(data?.message ?? 'Le fichier envoyé est trop volumineux.')
-    }
+        if (xhr.status === 401) {
+          authStore.clearSession()
+          reject(new UploadUnauthenticatedError('Session expirée. Connecte-toi de nouveau.'))
+          return
+        }
 
-    if (response.status === 429) {
-      const data = await readJson<MessageResponse>(response)
-      throw new UploadMessageError(
-        data?.message ?? 'Trop de téléversements. Réessaie dans quelques instants.',
-      )
-    }
+        if (xhr.status === 422) {
+          const data = readXhrJson<ValidationErrorResponse>(xhr)
+          reject(
+            new UploadValidationError(data?.message ?? 'Erreur de validation.', data?.errors ?? {}),
+          )
+          return
+        }
 
-    throw new Error(`Réponse inattendue du serveur (statut ${response.status}).`)
+        if (xhr.status === 413) {
+          const data = readXhrJson<MessageResponse>(xhr)
+          reject(new UploadMessageError(data?.message ?? 'Le fichier envoyé est trop volumineux.'))
+          return
+        }
+
+        if (xhr.status === 429) {
+          const data = readXhrJson<MessageResponse>(xhr)
+          reject(
+            new UploadMessageError(
+              data?.message ?? 'Trop de téléversements. Réessaie dans quelques instants.',
+            ),
+          )
+          return
+        }
+
+        reject(new Error(`Réponse inattendue du serveur (statut ${xhr.status}).`))
+      }
+
+      xhr.send(body)
+    })
   }
 
   async function list(options: ListOptions = {}): Promise<FilesPage> {

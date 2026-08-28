@@ -60,6 +60,8 @@ const password = ref('')
 const expiresInDays = ref(DEFAULT_EXPIRY_DAYS)
 const loading = ref(false)
 const globalError = ref('')
+const uploadPercent = ref(0)
+const processing = ref(false)
 
 const uploaded = ref<UploadedFile | null>(null)
 const uploadedExpiryLabel = ref('')
@@ -164,10 +166,19 @@ async function onSubmit(): Promise<void> {
   const chosenDays = expiresInDays.value
 
   loading.value = true
+  uploadPercent.value = 0
+  processing.value = false
   try {
     const file = await filesStore.upload(selectedFile.value, {
       password: password.value,
       expiresInDays: chosenDays,
+      onProgress: (percent) => {
+        uploadPercent.value = percent
+        if (percent === 100) {
+          processing.value = true
+          liveMessage.value = 'Fichier envoyé, traitement en cours...'
+        }
+      },
     })
     uploadedExpiryLabel.value = expiryLabel(chosenDays).toLowerCase()
     uploaded.value = file
@@ -186,6 +197,7 @@ async function onSubmit(): Promise<void> {
     }
   } finally {
     loading.value = false
+    processing.value = false
   }
 }
 
@@ -331,8 +343,22 @@ onBeforeUnmount(() => {
 
       <p v-if="globalError" class="form-error-global" role="alert">{{ globalError }}</p>
 
+      <div v-if="loading" class="upload-progress">
+        <div
+          class="upload-progress-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="uploadPercent"
+          aria-label="Progression du téléversement"
+        >
+          <div class="upload-progress-fill" :style="{ width: `${uploadPercent}%` }" />
+        </div>
+        <span class="upload-progress-label">{{ uploadPercent }} %</span>
+      </div>
+
       <button class="upload-submit" type="submit" :disabled="!canSubmit">
-        {{ loading ? 'Téléversement...' : 'Téléverser' }}
+        {{ processing ? 'Traitement...' : loading ? 'Téléversement...' : 'Téléverser' }}
       </button>
     </form>
   </section>
@@ -542,6 +568,35 @@ onBeforeUnmount(() => {
   width: 100%;
   border: var(--ds-border-width) solid var(--ds-color-accent-border-soft);
   margin-top: var(--ds-space-xs);
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-xs);
+  margin-top: var(--ds-space-xs);
+}
+
+.upload-progress-track {
+  flex: 1;
+  height: var(--ds-space-xs);
+  border-radius: var(--ds-radius-button);
+  background: var(--ds-color-disabled-bg);
+  overflow: hidden;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  background: var(--ds-color-accent);
+  transition: width 0.2s ease;
+}
+
+.upload-progress-label {
+  font-family: var(--ds-font-family-heading);
+  font-size: var(--ds-font-size-small);
+  line-height: var(--ds-line-height-small);
+  font-weight: var(--ds-font-weight-small);
+  color: var(--ds-color-text-secondary);
 }
 
 .upload-submit {

@@ -20,11 +20,6 @@ function jsonResponse(status: number, body: unknown): Response {
   return { status, json: () => Promise.resolve(body) } as unknown as Response
 }
 
-/** Un 413 produit hors de l'application n'a pas de corps JSON exploitable. */
-function nonJsonResponse(status: number): Response {
-  return { status, json: () => Promise.reject(new SyntaxError('Unexpected token')) } as Response
-}
-
 const fetchMock = vi.fn<typeof fetch>()
 
 const uploadedFile = {
@@ -47,11 +42,60 @@ function lastRequestInit(): RequestInit {
   return fetchMock.mock.calls[0]![1] as RequestInit
 }
 
+/** Fausse XHR pilotable à la main : `upload()` en a besoin, `fetch` reste mocké pour list/remove. */
+class FakeXMLHttpRequest {
+  static instances: FakeXMLHttpRequest[] = []
+
+  method = ''
+  url = ''
+  status = 0
+  responseText = ''
+  headers: Record<string, string> = {}
+  body: unknown
+  upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null }
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+
+  open(method: string, url: string): void {
+    this.method = method
+    this.url = url
+  }
+
+  setRequestHeader(key: string, value: string): void {
+    this.headers[key] = value
+  }
+
+  send(body: unknown): void {
+    this.body = body
+    FakeXMLHttpRequest.instances.push(this)
+  }
+
+  respond(status: number, responseText: string): void {
+    this.status = status
+    this.responseText = responseText
+    this.onload?.()
+  }
+
+  progress(loaded: number, total: number, lengthComputable = true): void {
+    this.upload.onprogress?.({ loaded, total, lengthComputable } as ProgressEvent)
+  }
+
+  fail(): void {
+    this.onerror?.()
+  }
+}
+
+function lastXhr(): FakeXMLHttpRequest {
+  return FakeXMLHttpRequest.instances[FakeXMLHttpRequest.instances.length - 1]!
+}
+
 beforeEach(() => {
   localStorage.clear()
   localStorage.setItem(TOKEN_STORAGE_KEY, 'jwt-test')
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
+  FakeXMLHttpRequest.instances = []
+  vi.stubGlobal('XMLHttpRequest', FakeXMLHttpRequest)
   setActivePinia(createPinia())
 })
 
@@ -61,117 +105,147 @@ afterEach(() => {
 
 describe('useFilesStore', () => {
   it('poste un FormData authentifié et retourne le fichier créé sur un 201', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201, { data: uploadedFile }))
     const store = useFilesStore()
     const file = pdf()
 
-    const result = await store.upload(file, { password: 'motdepasse', expiresInDays: 3 })
+    const resultPromise = store.upload(file, { password: 'motdepasse', expiresInDays: 3 })
+    const xhr = lastXhr()
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0]![0]).toBe('/api/files')
+    expect(FakeXMLHttpRequest.instances).toHaveLength(1)
+    expect(xhr.method).toBe('POST')
+    expect(xhr.url).toBe('/api/files')
 
-    const init = lastRequestInit()
-    expect(init.method).toBe('POST')
-
-    const body = init.body as FormData
+    const body = xhr.body as FormData
     expect(body).toBeInstanceOf(FormData)
     expect(body.get('file')).toBe(file)
     expect(body.get('password')).toBe('motdepasse')
     expect(body.get('expires_in_days')).toBe('3')
 
-    expect(result).toEqual(uploadedFile)
+    xhr.respond(201, JSON.stringify({ data: uploadedFile }))
+
+    expect(await resultPromise).toEqual(uploadedFile)
   })
 
   it('ne fixe aucun Content-Type : le boundary multipart appartient au navigateur', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201, { data: uploadedFile }))
+    const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7 })
+    const xhr = lastXhr()
 
-    await useFilesStore().upload(pdf(), { expiresInDays: 7 })
-
-    expect(lastRequestInit().headers).toEqual({
+    expect(xhr.headers).toEqual({
       Accept: 'application/json',
       Authorization: 'Bearer jwt-test',
     })
+
+    xhr.respond(201, JSON.stringify({ data: uploadedFile }))
+    await resultPromise
   })
 
   it("n'envoie pas le champ password quand il est vide", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201, { data: uploadedFile }))
+    const resultPromise = useFilesStore().upload(pdf(), { password: '', expiresInDays: 7 })
+    const xhr = lastXhr()
 
-    await useFilesStore().upload(pdf(), { password: '', expiresInDays: 7 })
+    expect((xhr.body as FormData).has('password')).toBe(false)
 
-    expect((lastRequestInit().body as FormData).has('password')).toBe(false)
+    xhr.respond(201, JSON.stringify({ data: uploadedFile }))
+    await resultPromise
   })
 
   it('propage les erreurs par champ sur un 422', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse(422, {
+    const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7 })
+    lastXhr().respond(
+      422,
+      JSON.stringify({
         message: 'The given data was invalid.',
         errors: { file: ["Ce type de fichier n'est pas autorisé."] },
       }),
     )
 
-    await expect(useFilesStore().upload(pdf(), { expiresInDays: 7 })).rejects.toMatchObject({
+    await expect(resultPromise).rejects.toMatchObject({
       name: 'UploadValidationError',
       errors: { file: ["Ce type de fichier n'est pas autorisé."] },
     })
   })
 
   it('purge la session sur un 401', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(401, { message: 'Unauthenticated.' }))
     const authStore = useAuthStore()
 
-    await expect(useFilesStore().upload(pdf(), { expiresInDays: 7 })).rejects.toBeInstanceOf(
-      UploadUnauthenticatedError,
-    )
+    const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7 })
+    lastXhr().respond(401, JSON.stringify({ message: 'Unauthenticated.' }))
+
+    await expect(resultPromise).rejects.toBeInstanceOf(UploadUnauthenticatedError)
 
     expect(authStore.token).toBeNull()
     expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
   })
 
   it('remonte le message du serveur sur un 413 et sur un 429', async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(413, { message: 'Le fichier envoyé est trop volumineux.' }),
-    )
-    await expect(useFilesStore().upload(pdf(), { expiresInDays: 7 })).rejects.toThrow(
-      'Le fichier envoyé est trop volumineux.',
-    )
+    const store = useFilesStore()
 
-    fetchMock.mockResolvedValueOnce(jsonResponse(429, { message: 'Trop de requêtes.' }))
-    await expect(useFilesStore().upload(pdf(), { expiresInDays: 7 })).rejects.toThrow(
-      'Trop de requêtes.',
-    )
+    const firstPromise = store.upload(pdf(), { expiresInDays: 7 })
+    lastXhr().respond(413, JSON.stringify({ message: 'Le fichier envoyé est trop volumineux.' }))
+    await expect(firstPromise).rejects.toThrow('Le fichier envoyé est trop volumineux.')
+
+    const secondPromise = store.upload(pdf(), { expiresInDays: 7 })
+    lastXhr().respond(429, JSON.stringify({ message: 'Trop de requêtes.' }))
+    await expect(secondPromise).rejects.toThrow('Trop de requêtes.')
   })
 
   it("se rabat sur un message français quand le corps du 413 n'est pas du JSON", async () => {
-    fetchMock.mockResolvedValue(nonJsonResponse(413))
+    const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7 })
+    lastXhr().respond(413, 'Not JSON')
 
-    const error = await useFilesStore()
-      .upload(pdf(), { expiresInDays: 7 })
-      .catch((caught: unknown) => caught)
+    const error = await resultPromise.catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(UploadMessageError)
     expect((error as Error).message).toBe('Le fichier envoyé est trop volumineux.')
   })
 
   it('signale un statut inattendu sans le confondre avec une erreur de validation', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(500, {}))
+    const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7 })
+    lastXhr().respond(500, '{}')
 
-    const error = await useFilesStore()
-      .upload(pdf(), { expiresInDays: 7 })
-      .catch((caught: unknown) => caught)
+    const error = await resultPromise.catch((caught: unknown) => caught)
 
     expect(error).not.toBeInstanceOf(UploadValidationError)
     expect((error as Error).message).toBe('Réponse inattendue du serveur (statut 500).')
   })
 
   it('remonte un UploadMessageError avec un message stable sur une panne réseau', async () => {
-    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7 })
+    lastXhr().fail()
 
-    const error = await useFilesStore()
-      .upload(pdf(), { expiresInDays: 7 })
-      .catch((caught: unknown) => caught)
+    const error = await resultPromise.catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(UploadMessageError)
     expect((error as Error).message).toBe(NETWORK_ERROR_MESSAGE)
+  })
+
+  it('reporte la progression arrondie au callback pendant l’envoi', async () => {
+    const onProgress = vi.fn<(percent: number) => void>()
+
+    const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7, onProgress })
+    const xhr = lastXhr()
+
+    xhr.progress(33, 100)
+    xhr.progress(2, 3)
+    xhr.respond(201, JSON.stringify({ data: uploadedFile }))
+    await resultPromise
+
+    expect(onProgress).toHaveBeenCalledTimes(2)
+    expect(onProgress).toHaveBeenNthCalledWith(1, 33)
+    expect(onProgress).toHaveBeenNthCalledWith(2, 67)
+  })
+
+  it("n'appelle jamais le callback de progression quand la taille totale n'est pas calculable", async () => {
+    const onProgress = vi.fn<(percent: number) => void>()
+
+    const resultPromise = useFilesStore().upload(pdf(), { expiresInDays: 7, onProgress })
+    const xhr = lastXhr()
+
+    xhr.progress(10, 0, false)
+    xhr.respond(201, JSON.stringify({ data: uploadedFile }))
+    await resultPromise
+
+    expect(onProgress).not.toHaveBeenCalled()
   })
 
   describe('list', () => {

@@ -31,6 +31,17 @@ export default defineConfigWithVueTs(
   },
 
   {
+    // Augmentation ambiante de `Cypress.Chainable` : le pattern officiel
+    // (`declare global { namespace Cypress { ... } }`) déclenche
+    // @typescript-eslint/no-namespace, qui ne reconnaît pas ce `namespace`
+    // comme ambiant du fait de son imbrication.
+    files: ['cypress/support/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-namespace': 'off',
+    },
+  },
+
+  {
     ...pluginVitest.configs.recommended,
     files: ['src/**/__tests__/*'],
   },
