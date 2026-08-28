@@ -1,0 +1,260 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Détection des chemins modifiés
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      workflow: ${{ steps.filter.outputs.workflow }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            workflow:
+              - '.github/workflows/**'
+
+  lint-backend:
+    name: Lint backend (Pint)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+      - name: composer install
+        working-directory: backend
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Pint (vérification seule, aucune correction en CI)
+        working-directory: backend
+        run: ./vendor/bin/pint --test
+
+  lint-frontend:
+    name: Lint frontend (oxlint + ESLint + type-check)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm ci
+        working-directory: frontend
+        run: npm ci
+      - name: Lint (oxlint + ESLint, vérification seule)
+        working-directory: frontend
+        run: npm run lint:check
+      - name: Vérification des types (vue-tsc)
+        working-directory: frontend
+        run: npm run type-check
+
+  backend-tests:
+    name: Tests backend (SQLite, couverture)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+          extensions: mbstring, pdo_sqlite, pdo_pgsql, bcmath
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+      - name: composer install
+        working-directory: backend
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Suite complète avec couverture (porte --min=70)
+        working-directory: backend
+        run: composer run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+
+  backend-pgsql:
+    name: Rejeu PostgreSQL (critère de sortie A11)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.5
+        env:
+          POSTGRES_DB: datashare_test
+          POSTGRES_USER: datashare
+          POSTGRES_PASSWORD: datashare_local
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U datashare -d datashare_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, pdo_pgsql, bcmath
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+      - name: composer install
+        working-directory: backend
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Suite complète sur PostgreSQL (base dédiée CI, jamais datashare)
+        working-directory: backend
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: datashare_test
+          DB_USERNAME: datashare
+          DB_PASSWORD: datashare_local
+        run: php artisan test
+
+  frontend-tests:
+    name: Tests frontend (Vitest, couverture)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm ci
+        working-directory: frontend
+        run: npm ci
+      - name: Suite complète avec couverture (portes 70 % × 4)
+        working-directory: frontend
+        run: npm run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+
+  e2e:
+    name: End-to-end (Cypress)
+    needs: [changes, lint-backend, lint-frontend, backend-tests, backend-pgsql, frontend-tests]
+    if: >-
+      always() &&
+      (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.workflow == 'true') &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, pdo_pgsql, bcmath
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+      - name: composer install
+        working-directory: backend
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      # SQLite fichier (pas mémoire) : le serveur artisan tourne dans un
+      # process séparé de celui qui migre, il faut un fichier partagé.
+      # Choix délibéré vs. un service postgres ici : plus simple, plus
+      # rapide, cohérent avec la philosophie SQLite = boucle courte de
+      # TESTING.md §1 ; PostgreSQL reste couvert par le job backend-pgsql.
+      - name: Préparer le .env backend (SQLite, DATASHARE_FRONTEND_URL:4173)
+        working-directory: backend
+        run: |
+          cp .env.example .env
+          sed -i 's|^DATASHARE_FRONTEND_URL=.*|DATASHARE_FRONTEND_URL=http://localhost:4173|' .env
+          sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=sqlite|' .env
+          sed -i 's|^DB_DATABASE=.*|DB_DATABASE=database/database.sqlite|' .env
+          touch database/database.sqlite
+          php artisan key:generate --ansi
+          php artisan jwt:secret --force
+          php artisan migrate --force
+
+      - name: Démarrer le backend (artisan serve, arrière-plan)
+        working-directory: backend
+        run: nohup php artisan serve --port=8000 > artisan-serve.log 2>&1 &
+
+      - name: Attendre la disponibilité du backend (/up)
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/up > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "Backend indisponible après 30s :"
+          cat backend/artisan-serve.log
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-${{ hashFiles('frontend/package-lock.json') }}
+      - name: npm ci (installe aussi le binaire Cypress via "prepare")
+        working-directory: frontend
+        run: npm ci
+      - name: Parcours e2e (build + preview + Cypress, cf. test:e2e)
+        working-directory: frontend
+        run: npm run test:e2e
+
+      - name: Artefacts Cypress en cas d'échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-failure
+          path: |
+            frontend/cypress/screenshots
+            frontend/cypress/videos
+          if-no-files-found: ignore
+
+  ci-ok:
+    name: CI OK (check unique de protection de branche)
+    needs: [changes, lint-backend, lint-frontend, backend-tests, backend-pgsql, frontend-tests, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vérifier qu'aucun job requis n'a échoué ni été annulé
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

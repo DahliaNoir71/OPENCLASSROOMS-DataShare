@@ -1,0 +1,63 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Détection de dérive entre deux PR (CVE publiée sur une dépendance déjà
+    # mergée) : tous les lundis à 06:00 UTC.
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: Audits et scans de sécurité
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # historique complet requis par Gitleaks (mode git)
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      # composer audit lit composer.lock : ni composer install ni vendor/ ne
+      # sont nécessaires. Politique D2 : bloquant dès le premier avis (exit
+      # code binaire de la commande elle-même, aucun seuil de sévérité natif).
+      - name: composer audit
+        working-directory: backend
+        run: composer audit
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18'
+
+      # npm audit lit package-lock.json seul : ni npm ci ni node_modules/ ne
+      # sont nécessaires. Politique D2 : bloquant à partir de "high".
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+      # Checkout nu, sans composer install ni npm ci : vendor/ et
+      # node_modules/ sont absents, backend/.env est gitignoré donc absent
+      # lui aussi. Les findings déjà classés dans SECURITY.md §Ignorées
+      # (dépendances Python vendorisées de Mockery, JWT_SECRET de dev,
+      # fixtures de tests tiers) ne peuvent donc pas se reproduire dans ce
+      # scan (D4) : aucun fichier d'exclusion n'est nécessaire ici.
+      - name: Trivy (filesystem)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+      - name: Gitleaks (working tree + historique)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
