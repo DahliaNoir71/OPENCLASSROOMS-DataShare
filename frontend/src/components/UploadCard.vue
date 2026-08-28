@@ -252,7 +252,12 @@ onBeforeUnmount(() => {
         <div v-if="selectedFile" class="upload-file-row">
           <span class="upload-file-name">{{ selectedFile.name }}</span>
           <span class="upload-file-size">{{ formattedSize }}</span>
-          <button class="upload-change-button" type="button" @click="openFilePicker">
+          <button
+            class="upload-change-button"
+            type="button"
+            aria-label="Changer de fichier"
+            @click="openFilePicker"
+          >
             Changer
           </button>
         </div>
