@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, reactive, ref, useTemplateRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import AppCallout from '@/components/AppCallout.vue'
 import {
   UploadMessageError,
   UploadUnauthenticatedError,
@@ -16,6 +17,23 @@ const MAX_FILE_SIZE_BYTES = 2 ** 30
 
 const FILE_TOO_LARGE_MESSAGE = 'La taille des fichiers est limitée à 1 Go'
 const PASSWORD_MIN_LENGTH = 6
+// 72 : au-delà, bcrypt tronque silencieusement le mot de passe — même borne
+// que côté serveur (UploadFileRequest::rules()), pour un refus identique.
+const PASSWORD_MAX_LENGTH = 72
+
+/**
+ * Miroir d'affichage de `config('datashare.uploads.blocked_extensions')` —
+ * seule la validation serveur (BlockedFileExtension) fait foi, voir
+ * SECURITY.md. Ce doublon ne sert qu'à avertir avant l'envoi d'un fichier
+ * volumineux voué à un 422 : une désynchronisation ne produit jamais qu'un
+ * avertissement en trop ou en moins, jamais un blocage.
+ */
+const LOCALLY_WARNED_EXTENSIONS = [
+  'exe', 'bat', 'cmd', 'sh', 'ps1', 'msi', 'dll', 'scr', 'com', 'pif', 'jar', 'vbs',
+]
+
+const BLOCKED_EXTENSION_WARNING =
+  "Cette extension n'est généralement pas autorisée : l'envoi risque d'être refusé."
 
 /** Les 7 durées de l'API (1..7 jours), libellées comme dans la maquette. */
 const EXPIRY_OPTIONS = [
@@ -67,6 +85,26 @@ const isTooLarge = computed(
 
 const canSubmit = computed(() => selectedFile.value !== null && !isTooLarge.value && !loading.value)
 
+/** Dernier segment après le dernier point, en minuscules — même règle que
+ * `UploadedFile::getClientOriginalExtension()` côté serveur : absence de
+ * point donne une chaîne vide, jamais dans la liste, donc pas d'avertissement. */
+function fileExtension(name: string): string {
+  const lastDot = name.lastIndexOf('.')
+  return lastDot === -1 ? '' : name.slice(lastDot + 1).toLowerCase()
+}
+
+const refusedExtensionWarning = computed(() => {
+  if (!selectedFile.value) {
+    return ''
+  }
+
+  const extension = fileExtension(selectedFile.value.name)
+
+  return extension !== '' && LOCALLY_WARNED_EXTENSIONS.includes(extension)
+    ? BLOCKED_EXTENSION_WARNING
+    : ''
+})
+
 function expiryLabel(days: number): string {
   return EXPIRY_OPTIONS.find((option) => option.days === days)?.label ?? ''
 }
@@ -106,6 +144,10 @@ function validate(): boolean {
   if (password.value && password.value.length < PASSWORD_MIN_LENGTH) {
     fieldErrors.password.push(
       `Le mot de passe doit contenir au moins ${PASSWORD_MIN_LENGTH} caractères.`,
+    )
+  } else if (password.value.length > PASSWORD_MAX_LENGTH) {
+    fieldErrors.password.push(
+      `Le mot de passe ne doit pas dépasser ${PASSWORD_MAX_LENGTH} caractères.`,
     )
   }
 
@@ -218,6 +260,12 @@ onBeforeUnmount(() => {
         <p v-if="fieldErrors.file.length > 0" id="upload-file-error" class="form-error">
           {{ fieldErrors.file.join(' ') }}
         </p>
+
+        <AppCallout
+          v-else-if="refusedExtensionWarning"
+          type="warning"
+          :label="refusedExtensionWarning"
+        />
       </div>
 
       <div class="form-field">
@@ -228,6 +276,7 @@ onBeforeUnmount(() => {
           type="password"
           autocomplete="new-password"
           placeholder="Optionnel"
+          maxlength="72"
           :aria-describedby="fieldErrors.password.length > 0 ? 'upload-password-error' : undefined"
         />
         <p v-if="fieldErrors.password.length > 0" id="upload-password-error" class="form-error">
