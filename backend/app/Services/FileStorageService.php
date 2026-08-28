@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\LinkContentMissingException;
 use App\Models\File;
 use App\Models\User;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -123,7 +124,36 @@ class FileStorageService
             $disk->delete($file->stored_path);
         }
 
+        $this->pruneEmptyDirectories($disk, dirname($file->stored_path));
+
         $file->delete();
+    }
+
+    /**
+     * Remonte de la journée vers l'année, en s'arrêtant au premier répertoire
+     * encore peuplé (jamais la racine du disque, hors de portée de dirname()
+     * ici puisqu'il renvoie '.' une fois l'année dépassée). Un échec — course
+     * avec un dépôt concurrent, permissions — n'est jamais bloquant : un
+     * répertoire résiduel n'est pas une faute fonctionnelle, contrairement à
+     * l'échec de la suppression du fichier ou de la ligne juste après.
+     */
+    private function pruneEmptyDirectories(Filesystem $disk, string $directory): void
+    {
+        while ($directory !== '' && $directory !== '.') {
+            try {
+                if ($disk->files($directory) !== [] || $disk->directories($directory) !== []) {
+                    break;
+                }
+
+                $disk->deleteDirectory($directory);
+            } catch (Throwable $e) {
+                Log::debug('Directory cleanup skipped', ['directory' => $directory, 'message' => $e->getMessage()]);
+
+                break;
+            }
+
+            $directory = dirname($directory);
+        }
     }
 
     /**
