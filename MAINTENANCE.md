@@ -84,6 +84,14 @@ npm outdated
 `npm audit` remonte massivement des dépendances de **build** (Vite, Cypress)
 qui ne partent jamais en production : trier avant de s'alarmer.
 
+Ces deux commandes ne remontent que les avis publiés sur les dépendances
+déclarées ; elles ne remplacent pas une campagne de scan complète (Trivy sur
+le système de fichiers et sur les images, Gitleaks). Cette procédure, et la
+discipline des trois seaux qui trie ses résultats (corrigées / acceptées /
+ignorées), sont dans [SECURITY.md](SECURITY.md) et n'est pas dupliquée ici.
+Rappel déjà écrit ci-dessus (§Rythme) : une dépendance en retard sans avis de
+sécurité n'est pas une vulnérabilité.
+
 ### Ce qui distingue un correctif d'une montée de version
 
 Les contraintes `^` de `composer.json` et de `package.json` autorisent déjà
@@ -109,12 +117,21 @@ Dans l'ordre :
 1. `composer update` (ou `npm update`)
 2. `composer run test` (backend) — la procédure complète est dans
    [README.md](README.md#tests)
-3. `./vendor/bin/pint --test`
+3. `./vendor/bin/pint --test` ; côté frontend, `npm run lint:check` —
+   lecture seule, contrairement à `npm run lint` (README.md#qualité-de-code)
+   qui corrige : c'est la commande à utiliser pour vérifier une mise à jour
+   sans modifier le diff qu'on relit à l'étape suivante
 4. Relecture du diff de `composer.lock` (ou `package-lock.json`)
-5. Avant toute étape importante, rejeu de la suite backend sur PostgreSQL —
+5. Suites avec couverture bloquante : `composer run test:coverage` (backend,
+   seuil 70 %) et `npm run test:coverage` (frontend, seuils 70 % × 4) — un
+   échec de seuil après une montée de dépendance est un signal à examiner,
+   pas un bug d'outillage. Détail des seuils et de leur justification dans
+   [TESTING.md](TESTING.md#3-critères-dacceptation)
+6. Avant toute étape importante, rejeu de la suite backend sur PostgreSQL —
    procédure dans [README.md](README.md#tests)
-6. Côté frontend : `npx vitest run`, `npm run type-check`, `npm run lint`,
-   `npm run test:e2e`
+7. End-to-end : conditions de lancement (dont
+   `DATASHARE_FRONTEND_URL=http://localhost:4173`) dans
+   [TESTING.md](TESTING.md#5-instructions-dexécution)
 
 `composer.lock` et `package-lock.json` sont versionnés : une passe de
 maintenance est **un commit `chore(deps):` qui porte le diff de verrou**,
@@ -131,6 +148,19 @@ seule trace est une ligne `Expired files purged` dans les journaux. Après
 ```bash
 grep 'Expired files purged' storage/logs/laravel.log | tail -3
 ```
+
+Les lignes sont désormais écrites en JSON (`JsonFormatter`, depuis P12b,
+cf. [PERF.md](PERF.md#logs-structurés)) : le grep ci-dessus continue de
+fonctionner tel quel, `message` reste une sous-chaîne littérale du JSON. Une
+ligne réelle, relevée le 2026-08-28 lors d'une vérification manuelle :
+
+```json
+{"message":"Expired files purged","context":{"deleted":0,"failed":0},"level":200,"level_name":"INFO","channel":"local","datetime":"2026-08-28T09:28:39.240921+00:00","extra":{}}
+```
+
+`jq` rend cette lecture plus confortable (`grep ... | jq -c .context`, par
+exemple) mais n'est pas un prérequis : la ligne se lit tout aussi bien telle
+quelle.
 
 Son absence signifie l'une de trois choses, à écarter dans cet ordre.
 L'entrée cron manque, donc `schedule:run` n'est jamais appelé et rien ne
@@ -189,6 +219,23 @@ efface aussi la liste noire des jetons JWT, ce qui rend valides jusqu'à leur
 échéance des jetons pourtant déconnectés. Raisonnement complet dans
 [docs/architecture.md](docs/architecture.md#limites-assumées-et-voie-de-production).
 
+## Campagne de performance
+
+Le protocole complet (seeding, scénarios k6, métriques) est dans
+[PERF.md](PERF.md) et n'est pas dupliqué ici. À rejouer après tout
+changement du chemin de dépôt ou de téléchargement, ou avant une échéance
+qui justifie de reconfirmer les chiffres en cours.
+
+Deux pièges à l'exploitation :
+
+- **Les fichiers seedés se nettoient** — `php artisan files:seed-perf
+  --cleanup` supprime les fichiers de la campagne précédente ; les laisser
+  en place encombre le disque sans bénéfice une fois la campagne terminée.
+- **Les plafonds `DATASHARE_THROTTLE_*` ne se relèvent que le temps d'une
+  campagne** (calibrage et montée, cf. [PERF.md](PERF.md#les-trois-scénarios-backendperfk6downloadjs)),
+  jamais en configuration persistante : les relever durablement désactiverait
+  la limitation de débit en production.
+
 ## Piste frontend : lint d'accessibilité
 
 `eslint-plugin-vuejs-accessibility` n'est pas installé (lot B18-B26,
@@ -207,8 +254,13 @@ sur un périmètre de fichiers restreint le temps de résorber l'existant.
   [docs/architecture.md](docs/architecture.md#ce-que-garantit--et-ne-garantit-pas--le-scheduler)
 - **La convention de la piste d'audit, et le piège du `LOG_LEVEL`** —
   [docs/architecture.md](docs/architecture.md#la-piste-daudit)
-- **Les limites de sécurité assumées** — [SECURITY.md](SECURITY.md)
-- **Les arbitrages de performance** — [PERF.md](PERF.md)
+- **La procédure complète de scan de sécurité (Trivy, Gitleaks) et la
+  discipline des trois seaux** — [SECURITY.md](SECURITY.md)
+- **Les arbitrages de performance, et le protocole complet de la campagne**
+  — [PERF.md](PERF.md)
+- **La rotation des journaux** — `daily` et `LOG_DAILY_DAYS`
+  (`config/logging.php`) existent côté configuration ; la rotation au
+  niveau du système (logrotate ou équivalent) reste hors de ce document.
 - **Les variables d'environnement de production** —
   [README.md](README.md#points-ouverts),
   [docs/architecture.md](docs/architecture.md#configuration-cible)
