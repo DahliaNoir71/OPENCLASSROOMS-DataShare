@@ -61,7 +61,10 @@ partir sans rien installer sur son poste.
 
 Un passage de contrôle mensuel, et sans délai dès qu'un avis de sécurité est
 publié sur une dépendance du projet. Regarder n'est pas mettre à jour : la
-décision de mettre à jour se prend au cas par cas, cf. ci-dessous.
+décision de mettre à jour se prend au cas par cas, cf. ci-dessous. Cette veille
+est désormais aussi automatisée par `security.yml` (audits + scans à chaque
+pull request et chaque lundi 06:00 UTC) — contenu des scans dans
+[SECURITY.md](SECURITY.md).
 
 ### Repérer une faille
 

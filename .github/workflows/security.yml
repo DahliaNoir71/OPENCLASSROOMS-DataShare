@@ -32,7 +32,7 @@ jobs:
     name: Audits et scans de sécurité
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # historique complet requis par Gitleaks (mode git)
 
@@ -47,7 +47,7 @@ jobs:
         working-directory: backend
         run: composer audit --locked
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22.18'
 
@@ -72,6 +72,6 @@ jobs:
           exit-code: '1'
 
       - name: Gitleaks (working tree + historique)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
