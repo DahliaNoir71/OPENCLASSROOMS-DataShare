@@ -19,6 +19,7 @@ on les attend. Le présent README ne traite que de la mise en route.
 | [docs/mcd.md](docs/mcd.md) | MCD (Merise) et MLD, contraintes, index, décisions de modélisation |
 | [docs/openapi.yaml](docs/openapi.yaml) | Contrat d'API (OpenAPI 3.1) — 9 opérations |
 | [docs/design-tokens.md](docs/design-tokens.md) | Jetons de design de la SPA (couleurs, typographie, espacements) |
+| [docs/utilisation-ia.md](docs/utilisation-ia.md) | Posture d'usage de l'IA générative dans le développement, cycle en trois phases par user story, supervision et correctifs, apports et limites constatés |
 | [SECURITY.md](SECURITY.md) | Limites de sécurité assumées, au fil des lots fonctionnels |
 | [PERF.md](PERF.md) | Budgets et arbitrages de performance, au fil des lots fonctionnels |
 | [MAINTENANCE.md](MAINTENANCE.md) | Exploitation : entrée cron du scheduler, purge quotidienne, mise à jour des dépendances |
@@ -157,8 +158,12 @@ versionnées. **`jwt:secret` n'est pas optionnel** : sans lui, toute route
 d'authentification échoue à la signature.
 
 > L'étape 3 est enchaînée par `composer run setup` (`composer install`, copie du
-> `.env`, `key:generate`, `migrate --force`). Attention, ce script **n'appelle
-> pas** `jwt:secret` : il reste à lancer à la main après coup.
+> `.env`, `key:generate`, `jwt:secret` si `JWT_SECRET` est vide, `migrate
+> --force`). La génération du secret JWT n'a lieu que si `JWT_SECRET` est vide
+> dans `.env` : rejouer `composer run setup` sur une installation existante ne
+> régénère pas un secret déjà en place, ce qui invaliderait tous les jetons en
+> cours. Pour le régénérer volontairement, `php artisan jwt:secret --force`
+> reste la voie manuelle.
 
 Aucun `npm install` n'est à lancer dans `backend/` : l'API ne sert aucun asset.
 
