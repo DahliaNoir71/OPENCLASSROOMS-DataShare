@@ -83,7 +83,7 @@ async function onSubmit(): Promise<void> {
   <div class="login-page">
     <AppHeader />
 
-    <main class="login-main">
+    <main id="main-content" class="login-main" tabindex="-1">
       <section class="login-card">
         <h1 class="login-title">Connexion</h1>
 

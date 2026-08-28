@@ -7,7 +7,7 @@ import AppHeader from '@/components/AppHeader.vue'
   <div class="not-found-page">
     <AppHeader />
 
-    <main class="not-found-main">
+    <main id="main-content" class="not-found-main" tabindex="-1">
       <section class="not-found-card">
         <h1 class="not-found-title">Page introuvable</h1>
 

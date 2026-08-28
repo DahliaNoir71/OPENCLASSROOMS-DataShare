@@ -82,7 +82,7 @@ async function onSubmit(): Promise<void> {
   <div class="register-page">
     <AppHeader />
 
-    <main class="register-main">
+    <main id="main-content" class="register-main" tabindex="-1">
       <section class="register-card">
         <h1 class="register-title">Créer un compte</h1>
 
