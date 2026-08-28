@@ -34,6 +34,8 @@ export interface ListOptions {
   status?: FileStatus
   page?: number
   perPage?: number
+  /** Annule la requête en cours — voir MyFilesView, qui abandonne toute liste périmée par un filtre/page plus récent. */
+  signal?: AbortSignal
 }
 
 /** Enveloppe native de pagination Laravel (docs/openapi.yaml, FileListResponse). */
@@ -229,8 +231,14 @@ export const useFilesStore = defineStore('files', () => {
           Accept: 'application/json',
           Authorization: `Bearer ${authStore.token ?? ''}`,
         },
+        signal: options.signal,
       })
-    } catch {
+    } catch (error) {
+      // Une requête abandonnée (AbortController) n'est pas une panne réseau :
+      // on la laisse remonter telle quelle pour que l'appelant la distingue.
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error
+      }
       throw new ListMessageError(NETWORK_ERROR_MESSAGE)
     }
 
