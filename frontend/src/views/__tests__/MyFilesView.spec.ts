@@ -54,7 +54,22 @@ let router: Router
 function mountView() {
   return mount(MyFilesView, {
     global: { plugins: [pinia, router] },
+    attachTo: document.body,
   })
+}
+
+// jsdom n'implémente pas showModal()/close() sur <dialog> : polyfill minimal
+// pour pouvoir exercer l'ouverture/fermeture dans les tests (voir B24).
+if (!HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+    this.setAttribute('open', '')
+  }
+}
+if (!HTMLDialogElement.prototype.close) {
+  HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) {
+    this.removeAttribute('open')
+    this.dispatchEvent(new Event('close'))
+  }
 }
 
 beforeEach(async () => {
@@ -188,6 +203,72 @@ describe('MyFilesView', () => {
     expect(buttons[1]!.classes()).toContain('status-switch-option--selected')
   })
 
+  describe('navigation clavier du radiogroup (roving tabindex)', () => {
+    it("n'expose qu'un seul arrêt de tabulation, sur l'option sélectionnée", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile()])))
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      const buttons = wrapper.findAll('.status-switch-option')
+      expect(buttons.map((button) => button.attributes('tabindex'))).toEqual(['0', '-1', '-1'])
+    })
+
+    it('ArrowRight sélectionne et déplace le focus vers l’option suivante, de façon cyclique', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile()])))
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      const buttons = wrapper.findAll('.status-switch-option')
+
+      await buttons[0]!.trigger('keydown', { key: 'ArrowRight' })
+      await flushPromises()
+      expect(buttons[1]!.classes()).toContain('status-switch-option--selected')
+      expect(buttons.map((button) => button.attributes('tabindex'))).toEqual(['-1', '0', '-1'])
+      expect(document.activeElement).toBe(buttons[1]!.element)
+
+      await buttons[1]!.trigger('keydown', { key: 'ArrowRight' })
+      await buttons[2]!.trigger('keydown', { key: 'ArrowRight' })
+      await flushPromises()
+      expect(buttons[0]!.classes()).toContain('status-switch-option--selected')
+    })
+
+    it('ArrowLeft sélectionne et déplace le focus vers l’option précédente, de façon cyclique', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile()])))
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      const buttons = wrapper.findAll('.status-switch-option')
+
+      await buttons[0]!.trigger('keydown', { key: 'ArrowLeft' })
+      await flushPromises()
+
+      expect(buttons[2]!.classes()).toContain('status-switch-option--selected')
+      expect(document.activeElement).toBe(buttons[2]!.element)
+    })
+  })
+
+  it('affiche un cadenas et son alternative accessible pour un fichier protégé', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile({ protected: true })])))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.file-row-protected-icon').exists()).toBe(true)
+    expect(wrapper.find('.file-row-name').text()).toContain('Protégé par mot de passe')
+  })
+
+  it("n'affiche aucun cadenas pour un fichier non protégé", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile({ protected: false })])))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.file-row-protected-icon').exists()).toBe(false)
+  })
+
   it('désactive Précédent sur la première page et Suivant sur la dernière', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(200, pageOf([activeFile()], { current_page: 1, last_page: 1 })),
@@ -220,6 +301,94 @@ describe('MyFilesView', () => {
 
     expect(fetchMock.mock.calls[1]![0]).toBe('/api/files?status=all&page=2')
     expect(wrapper.find('.pagination-status').text()).toBe('Page 2 / 2')
+  })
+
+  describe('requêtes concurrentes', () => {
+    it('conserve la liste affichée et signale aria-busy pendant un rafraîchissement (changement de filtre)', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+      let resolveSecond!: (response: Response) => void
+      fetchMock.mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveSecond = resolve
+          }),
+      )
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      const buttons = wrapper.findAll('.status-switch-option')
+      await buttons[1]!.trigger('click')
+      await flushPromises()
+
+      // Le rafraîchissement est en cours : la liste précédente reste affichée,
+      // sans repasser par le texte plein écran « Chargement… ».
+      expect(wrapper.find('.file-row-name').text()).toContain('rapport.pdf')
+      expect(wrapper.find('.file-list-region').attributes('aria-busy')).toBe('true')
+      expect(wrapper.find('.my-files-status-text').exists()).toBe(false)
+
+      resolveSecond(jsonResponse(200, pageOf([activeFile({ id: 2, original_name: 'autre.pdf' })])))
+      await flushPromises()
+
+      expect(wrapper.find('.file-list-region').attributes('aria-busy')).toBeUndefined()
+      expect(wrapper.find('.file-row-name').text()).toContain('autre.pdf')
+    })
+
+    it("annule la requête précédente lorsqu'un nouveau filtre est choisi avant sa résolution", async () => {
+      let firstSignal: AbortSignal | undefined
+      fetchMock.mockImplementationOnce((_input, init) => {
+        firstSignal = (init as RequestInit).signal as AbortSignal
+        return new Promise<Response>(() => {
+          // Volontairement jamais résolue : seul l'abandon nous intéresse ici.
+        })
+      })
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      expect(firstSignal?.aborted).toBe(false)
+
+      const buttons = wrapper.findAll('.status-switch-option')
+      await buttons[1]!.trigger('click')
+      await flushPromises()
+
+      expect(firstSignal?.aborted).toBe(true)
+    })
+
+    it("une requête A abandonnée pendant qu'une requête B plus récente aboutit ne modifie aucun état de B — pas même via le `finally`", async () => {
+      let rejectA!: (reason: unknown) => void
+      fetchMock.mockImplementationOnce(
+        () =>
+          new Promise<Response>((_resolve, reject) => {
+            rejectA = reject
+          }),
+      )
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(200, pageOf([activeFile({ id: 2, original_name: 'B.pdf' })])),
+      )
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      const buttons = wrapper.findAll('.status-switch-option')
+      await buttons[1]!.trigger('click')
+      await flushPromises()
+
+      // B a déjà abouti : liste à jour, plus de chargement en cours.
+      expect(wrapper.find('.file-row-name').text()).toContain('B.pdf')
+      expect(wrapper.find('.file-list-region').attributes('aria-busy')).toBeUndefined()
+
+      // A s'abandonne après coup (comportement réel de fetch() sur un signal
+      // aborted) : son échec ne doit ni afficher d'erreur, ni rouvrir l'état
+      // "chargement" de B, ni toucher la liste déjà affichée par B.
+      rejectA(new DOMException('The operation was aborted.', 'AbortError'))
+      await flushPromises()
+
+      expect(wrapper.find('.form-error-global').exists()).toBe(false)
+      expect(wrapper.find('.file-row-name').text()).toContain('B.pdf')
+      expect(wrapper.find('.file-list-region').attributes('aria-busy')).toBeUndefined()
+    })
   })
 
   it('affiche le message du serveur sur un 429', async () => {
@@ -260,32 +429,58 @@ describe('MyFilesView', () => {
   })
 
   describe('suppression', () => {
-    it('demande confirmation avant de supprimer et annule si elle est refusée', async () => {
+    it('ouvre un dialogue de confirmation et annule sans appeler le serveur', async () => {
       fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile()])))
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
 
       const wrapper = mountView()
       await flushPromises()
 
-      await wrapper.find('.file-row-delete-button').trigger('click')
-      await flushPromises()
+      const deleteButton = wrapper.find('.file-row-delete-button')
+      await deleteButton.trigger('click')
 
-      expect(confirmSpy).toHaveBeenCalledWith(
+      const dialog = wrapper.find('.confirm-dialog')
+      expect(dialog.exists()).toBe(true)
+      expect(dialog.attributes('aria-modal')).toBe('true')
+      expect(dialog.text()).toContain(
         'Supprimer définitivement « rapport.pdf » ? Cette action est irréversible.',
       )
+
+      await wrapper.find('.confirm-dialog-cancel').trigger('click')
+      await flushPromises()
+
       expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('place le focus initial sur « Annuler » et le rend au bouton déclencheur à la fermeture', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile()])))
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      const deleteButton = wrapper.find('.file-row-delete-button')
+      expect(deleteButton.attributes('autofocus')).toBeUndefined()
+      await deleteButton.trigger('click')
+
+      expect(wrapper.find('.confirm-dialog-cancel').attributes('autofocus')).toBeDefined()
+
+      const dialogElement = wrapper.find('.confirm-dialog').element as HTMLDialogElement
+      dialogElement.dispatchEvent(new Event('close'))
+      await flushPromises()
+
+      expect(document.activeElement).toBe(deleteButton.element)
+      wrapper.unmount()
     })
 
     it('supprime le fichier confirmé puis rafraîchit la liste', async () => {
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
       fetchMock.mockResolvedValueOnce(jsonResponse(204, {}))
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([])))
-      vi.spyOn(window, 'confirm').mockReturnValue(true)
 
       const wrapper = mountView()
       await flushPromises()
 
       await wrapper.find('.file-row-delete-button').trigger('click')
+      await wrapper.find('.confirm-dialog-confirm').trigger('click')
       await flushPromises()
 
       expect(fetchMock).toHaveBeenCalledTimes(3)
@@ -299,12 +494,12 @@ describe('MyFilesView', () => {
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
       fetchMock.mockResolvedValueOnce(jsonResponse(404, { message: 'Ce fichier est introuvable.' }))
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([])))
-      vi.spyOn(window, 'confirm').mockReturnValue(true)
 
       const wrapper = mountView()
       await flushPromises()
 
       await wrapper.find('.file-row-delete-button').trigger('click')
+      await wrapper.find('.confirm-dialog-confirm').trigger('click')
       await flushPromises()
 
       expect(fetchMock).toHaveBeenCalledTimes(3)
@@ -315,12 +510,12 @@ describe('MyFilesView', () => {
     it('affiche le message du serveur si la suppression échoue sur un 429', async () => {
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
       fetchMock.mockResolvedValueOnce(jsonResponse(429, { message: 'Trop de requêtes.' }))
-      vi.spyOn(window, 'confirm').mockReturnValue(true)
 
       const wrapper = mountView()
       await flushPromises()
 
       await wrapper.find('.file-row-delete-button').trigger('click')
+      await wrapper.find('.confirm-dialog-confirm').trigger('click')
       await flushPromises()
 
       expect(wrapper.find('.form-error-global').text()).toBe('Trop de requêtes.')
@@ -330,12 +525,12 @@ describe('MyFilesView', () => {
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
       fetchMock.mockResolvedValueOnce(jsonResponse(500, {}))
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([])))
-      vi.spyOn(window, 'confirm').mockReturnValue(true)
 
       const wrapper = mountView()
       await flushPromises()
 
       await wrapper.find('.file-row-delete-button').trigger('click')
+      await wrapper.find('.confirm-dialog-confirm').trigger('click')
       await flushPromises()
 
       expect(fetchMock).toHaveBeenCalledTimes(3)
@@ -348,31 +543,31 @@ describe('MyFilesView', () => {
     it('affiche le message du serveur, sans rafraîchir, quand la suppression échoue sur une panne réseau', async () => {
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
       fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      vi.spyOn(window, 'confirm').mockReturnValue(true)
 
       const wrapper = mountView()
       await flushPromises()
 
       await wrapper.find('.file-row-delete-button').trigger('click')
+      await wrapper.find('.confirm-dialog-confirm').trigger('click')
       await flushPromises()
 
       expect(fetchMock).toHaveBeenCalledTimes(2)
       expect(wrapper.find('.form-error-global').text()).toBe(
         'Connexion au serveur impossible. Vérifie ta connexion et réessaie.',
       )
-      expect(wrapper.find('.file-row-name').text()).toBe('rapport.pdf')
+      expect(wrapper.find('.file-row-name').text()).toContain('rapport.pdf')
     })
 
     it('redirige vers la connexion si la session est révoquée pendant la suppression', async () => {
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
       fetchMock.mockResolvedValueOnce(jsonResponse(401, { message: 'Unauthenticated.' }))
-      vi.spyOn(window, 'confirm').mockReturnValue(true)
       const pushSpy = vi.spyOn(router, 'push')
 
       const wrapper = mountView()
       await flushPromises()
 
       await wrapper.find('.file-row-delete-button').trigger('click')
+      await wrapper.find('.confirm-dialog-confirm').trigger('click')
       await flushPromises()
 
       expect(pushSpy).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/mon-espace' } })
@@ -380,7 +575,6 @@ describe('MyFilesView', () => {
 
     it('affiche « Suppression... » et neutralise le bouton pendant la requête', async () => {
       fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
-      vi.spyOn(window, 'confirm').mockReturnValue(true)
       let resolveDelete!: (response: Response) => void
       fetchMock.mockReturnValueOnce(
         new Promise<Response>((resolve) => {
@@ -392,6 +586,7 @@ describe('MyFilesView', () => {
       await flushPromises()
 
       await wrapper.find('.file-row-delete-button').trigger('click')
+      await wrapper.find('.confirm-dialog-confirm').trigger('click')
       await flushPromises()
 
       const deleteButton = wrapper.find('.file-row-delete-button')
