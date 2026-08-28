@@ -432,7 +432,7 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
 - [x] Aligner `backend/.env.example` sur PostgreSQL
 - [x] Choisir et déclarer une licence → MIT
 - [x] Écrire la migration du modèle métier : table `files` (US01)
-- [ ] Aligner `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
+- [x] Aligner `users` sur [docs/mcd.md](docs/mcd.md) (`email_verified_at` et
       `remember_token` restent livrés par le squelette, absents du modèle)
 - [x] Implémenter les 9 opérations du contrat d'API — les 4 d'authentification,
       le dépôt de fichier (US01), le parcours de téléchargement (US02),
@@ -466,7 +466,7 @@ conservé pour que la contrainte reste lisible dans la définition de la table.
       le champ est absent, pas s'il est `null`), et `default_expiry_days` /
       `max_expiry_days` sont indépendants en configuration — rien ne garantit
       le premier inférieur ou égal au second
-- [ ] Nettoyer les répertoires `AAAA/MM/JJ` vides que la purge laisse derrière
+- [x] Nettoyer les répertoires `AAAA/MM/JJ` vides que la purge laisse derrière
       elle sur le disque `uploads` : `FileStorageService::delete()` efface les
       fichiers, jamais les répertoires qui les contenaient
 
