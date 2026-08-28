@@ -63,8 +63,8 @@ describe('Parcours de partage de fichier', () => {
     cy.contains('h1', 'Mes fichiers')
     cy.contains('.file-row-name', FIXTURE)
 
-    cy.on('window:confirm', () => true)
     cy.contains('.file-row', FIXTURE).contains('button', 'Supprimer').click()
+    cy.get('dialog[open]').contains('button', 'Supprimer').click()
 
     cy.contains('Aucun fichier à afficher.')
 
