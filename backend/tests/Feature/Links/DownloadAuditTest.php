@@ -54,9 +54,15 @@ class DownloadAuditTest extends TestCase
 
         $this->assertCount(1, $lines);
         $this->assertSame('info', $lines[0]->level);
+        $context = $lines[0]->context;
         // L'appelant est anonyme : il n'y a que le fichier à identifier, et par
         // son identifiant numérique.
-        $this->assertSame(['file_id' => $file->id], $lines[0]->context);
+        $this->assertSame($file->id, $context['file_id']);
+        $this->assertIsInt($context['duration_ms']);
+        $this->assertGreaterThanOrEqual(0, $context['duration_ms']);
+        $this->assertSame($file->size, $context['bytes']);
+        $this->assertSame('api/links/{token}/download', $context['route']);
+        $this->assertSame(['file_id', 'duration_ms', 'bytes', 'route'], array_keys($context));
     }
 
     /**
