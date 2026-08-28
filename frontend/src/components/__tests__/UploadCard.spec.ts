@@ -165,6 +165,39 @@ describe('UploadCard', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('refuse un mot de passe de plus de 72 caractères sans appeler le serveur', async () => {
+    const wrapper = mountCard()
+
+    await attachFile(wrapper, pdf())
+    await wrapper.find('#upload-password').setValue('a'.repeat(73))
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(wrapper.find('#upload-password-error').text()).toBe(
+      'Le mot de passe ne doit pas dépasser 72 caractères.',
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('avertit sans bloquer quand le fichier choisi porte une extension généralement refusée', async () => {
+    const wrapper = mountCard()
+
+    await attachFile(wrapper, new File(['x'], 'setup.exe', { type: 'application/x-msdownload' }))
+
+    expect(wrapper.find('.app-callout--warning').text()).toContain(
+      "Cette extension n'est généralement pas autorisée",
+    )
+    expect(wrapper.find('.upload-submit').attributes('disabled')).toBeUndefined()
+  })
+
+  it("n'avertit pas pour un fichier sans extension refusée", async () => {
+    const wrapper = mountCard()
+
+    await attachFile(wrapper, pdf())
+
+    expect(wrapper.find('.app-callout--warning').exists()).toBe(false)
+  })
+
   it('désactive le bouton pendant le téléversement', async () => {
     let resolveFetch: (response: Response) => void = () => {}
     fetchMock.mockReturnValue(
