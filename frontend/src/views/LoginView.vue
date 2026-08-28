@@ -4,8 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AppHeader from '@/components/AppHeader.vue'
 import { AuthMessageError, RegisterValidationError, useAuthStore } from '@/stores/auth'
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+import { EMAIL_REGEX } from '@/utils/email'
 
 const router = useRouter()
 const route = useRoute()
