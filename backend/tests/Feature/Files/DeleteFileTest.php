@@ -280,4 +280,38 @@ class DeleteFileTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('data', []);
     }
+
+    public function test_deleting_the_last_file_of_the_day_removes_the_now_empty_directory(): void
+    {
+        $user = $this->user();
+        $token = $this->login($user);
+        $file = File::factory()->for($user)->create();
+        Storage::disk('uploads')->put($file->stored_path, 'contenu');
+        $dayDirectory = dirname($file->stored_path);
+
+        $this->withToken($token)->deleteJson($this->url($file->id))->assertNoContent();
+
+        $this->assertDirectoryDoesNotExist(Storage::disk('uploads')->path($dayDirectory));
+    }
+
+    /**
+     * Deux fichiers déposés le même jour partagent le même répertoire
+     * `AAAA/MM/JJ` (défaut de la factory) : en supprimer un seul ne doit pas
+     * emporter le répertoire tant que l'autre y a encore son contenu.
+     */
+    public function test_deleting_one_of_two_files_from_the_same_day_leaves_the_directory(): void
+    {
+        $user = $this->user();
+        $token = $this->login($user);
+        $file = File::factory()->for($user)->create();
+        $sibling = File::factory()->for($user)->create();
+        Storage::disk('uploads')->put($file->stored_path, 'contenu');
+        Storage::disk('uploads')->put($sibling->stored_path, 'contenu');
+        $dayDirectory = dirname($file->stored_path);
+
+        $this->withToken($token)->deleteJson($this->url($file->id))->assertNoContent();
+
+        $this->assertDirectoryExists(Storage::disk('uploads')->path($dayDirectory));
+        Storage::disk('uploads')->assertExists($sibling->stored_path);
+    }
 }
