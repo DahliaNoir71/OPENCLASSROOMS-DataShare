@@ -243,4 +243,32 @@ class PurgeTest extends TestCase
 
         $this->assertDatabaseHas('files', ['id' => $active->id]);
     }
+
+    public function test_purging_the_last_expired_file_of_the_day_removes_the_now_empty_directory(): void
+    {
+        $file = $this->withContent(File::factory()->expired()->create());
+        $dayDirectory = dirname($file->stored_path);
+
+        $this->artisan(self::COMMAND)->assertExitCode(Command::SUCCESS);
+
+        $this->assertDirectoryDoesNotExist(Storage::disk('uploads')->path($dayDirectory));
+    }
+
+    /**
+     * Deux fichiers du même jour (défaut de la factory) : purger l'expiré ne
+     * doit pas emporter le répertoire tant que l'actif y a encore son
+     * contenu.
+     */
+    public function test_purging_one_of_two_files_from_the_same_day_leaves_the_directory_when_the_other_survives(): void
+    {
+        $user = User::factory()->create();
+        $expired = $this->withContent(File::factory()->for($user)->expired()->create());
+        $active = $this->withContent(File::factory()->for($user)->create());
+        $dayDirectory = dirname($expired->stored_path);
+
+        $this->artisan(self::COMMAND)->assertExitCode(Command::SUCCESS);
+
+        $this->assertDirectoryExists(Storage::disk('uploads')->path($dayDirectory));
+        Storage::disk('uploads')->assertExists($active->stored_path);
+    }
 }
