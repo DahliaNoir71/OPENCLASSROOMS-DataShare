@@ -45,7 +45,7 @@ jobs:
       # code binaire de la commande elle-même, aucun seuil de sévérité natif).
       - name: composer audit
         working-directory: backend
-        run: composer audit
+        run: composer audit --locked
 
       - uses: actions/setup-node@v4
         with:
@@ -64,7 +64,7 @@ jobs:
       # fixtures de tests tiers) ne peuvent donc pas se reproduire dans ce
       # scan (D4) : aucun fichier d'exclusion n'est nécessaire ici.
       - name: Trivy (filesystem)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
