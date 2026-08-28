@@ -38,19 +38,19 @@ class AppServiceProvider extends ServiceProvider
     private function configureRateLimiting(): void
     {
         RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(60)
+            return Limit::perMinute((int) config('datashare.throttle.api'))
                 ->by($request->user()?->id ?: $request->ip())
                 ->response($this->rejectAndLog('api'));
         });
 
         RateLimiter::for('auth', function (Request $request) {
-            return Limit::perMinute(5)
+            return Limit::perMinute((int) config('datashare.throttle.auth'))
                 ->by($request->ip())
                 ->response($this->rejectAndLog('auth'));
         });
 
         RateLimiter::for('uploads', function (Request $request) {
-            return Limit::perMinute(10)
+            return Limit::perMinute((int) config('datashare.throttle.uploads'))
                 ->by($request->user()?->id ?: $request->ip())
                 ->response($this->rejectAndLog('uploads'));
         });
@@ -78,10 +78,10 @@ class AppServiceProvider extends ServiceProvider
             $token = hash('sha256', (string) $request->route('token'));
 
             return [
-                Limit::perMinute(10)
+                Limit::perMinute((int) config('datashare.throttle.downloads_per_token'))
                     ->by('dl-token:'.$token)
                     ->response($this->rejectAndLog('downloads')),
-                Limit::perMinute(30)
+                Limit::perMinute((int) config('datashare.throttle.downloads_per_ip'))
                     ->by('dl-ip:'.$request->ip())
                     ->response($this->rejectAndLog('downloads')),
             ];

@@ -46,6 +46,8 @@ class FileController extends Controller
 
     public function store(UploadFileRequest $request, FileStorageService $files): JsonResponse
     {
+        $start = hrtime(true);
+
         // $request->integer() ne retombe sur son défaut que si la clé est
         // ABSENTE ; une clé présente mais vide ("" -> null par
         // ConvertEmptyStringsToNull, ou null explicite en JSON) donne
@@ -66,11 +68,15 @@ class FileController extends Controller
 
         // Piste d'audit (docs/architecture.md) : identifiants numériques
         // uniquement — ni le nom d'origine, ni le token, ni le mot de passe.
+        // duration_ms et route (A8) : mesure du traitement métier du
+        // contrôleur pour une campagne de charge, jamais le chemin résolu.
         Log::info('File uploaded', [
             'user_id' => $request->user()->id,
             'file_id' => $file->id,
             'size' => $file->size,
             'protected' => $file->isProtected(),
+            'duration_ms' => (int) round((hrtime(true) - $start) / 1_000_000),
+            'route' => $request->route()?->uri(),
         ]);
 
         return FileResource::make($file)->response()->setStatusCode(201);

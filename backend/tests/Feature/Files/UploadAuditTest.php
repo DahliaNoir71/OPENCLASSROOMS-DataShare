@@ -61,12 +61,16 @@ class UploadAuditTest extends TestCase
 
         $this->assertCount(1, $lines);
         $this->assertSame('info', $lines[0]->level);
+        $context = $lines[0]->context;
         $this->assertSame([
             'user_id' => $user->id,
             'file_id' => $fileModel->id,
             'size' => $fileModel->size,
             'protected' => false,
-        ], $lines[0]->context);
+        ], array_diff_key($context, array_flip(['duration_ms', 'route'])));
+        $this->assertIsInt($context['duration_ms']);
+        $this->assertGreaterThanOrEqual(0, $context['duration_ms']);
+        $this->assertSame('api/files', $context['route']);
     }
 
     public function test_a_refused_upload_leaves_no_audit_line(): void
@@ -106,7 +110,10 @@ class UploadAuditTest extends TestCase
         $fileModel = File::firstOrFail();
         $context = $this->logsWithMessage(self::MESSAGE)[0]->context;
 
-        $this->assertSame(['user_id', 'file_id', 'size', 'protected'], array_keys($context));
+        $this->assertSame(
+            ['user_id', 'file_id', 'size', 'protected', 'duration_ms', 'route'],
+            array_keys($context),
+        );
 
         $encoded = json_encode($context);
         $this->assertStringNotContainsString('mon-fichier-confidentiel', $encoded);

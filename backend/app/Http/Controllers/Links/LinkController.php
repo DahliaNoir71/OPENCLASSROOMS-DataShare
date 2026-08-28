@@ -45,6 +45,8 @@ class LinkController extends Controller
         DownloadLinkService $links,
         FileStorageService $files,
     ): StreamedResponse {
+        $start = hrtime(true);
+
         $file = $links->resolve($token);
 
         try {
@@ -66,7 +68,15 @@ class LinkController extends Controller
         // a donc que le fichier à identifier. Écrite après stream(), qui est ce
         // qui peut encore échouer : un lien dont les octets ont disparu n'a pas
         // été consommé.
-        Log::info('Link consumed', ['file_id' => $file->id]);
+        // duration_ms (A8) ne couvre que la résolution : la StreamedResponse
+        // rend la main avant le transfert des octets, qui n'est donc pas
+        // mesuré ici (documenté dans PERF.md).
+        Log::info('Link consumed', [
+            'file_id' => $file->id,
+            'duration_ms' => (int) round((hrtime(true) - $start) / 1_000_000),
+            'bytes' => $file->size,
+            'route' => $request->route()?->uri(),
+        ]);
 
         return $response;
     }

@@ -2,7 +2,10 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\CapturesLogs;
 use Tests\TestCase;
 
@@ -39,6 +42,32 @@ class RateLimitLoggingTest extends TestCase
         $this->postJson(self::REGISTER_URI, $this->credentials(1))->assertCreated();
 
         $this->assertSame([], $this->logsWithMessage(self::MESSAGE));
+    }
+
+    /**
+     * La preuve que les plafonds se pilotent par configuration (A4) : abaisser
+     * datashare.throttle.uploads à 1 sans toucher au code suffit à faire
+     * chuter la deuxième requête sous le 429 — c'est l'idiome qu'une campagne
+     * de charge utilise pour relever les plafonds à l'inverse.
+     */
+    public function test_the_uploads_ceiling_is_driven_by_configuration(): void
+    {
+        config(['datashare.throttle.uploads' => 1]);
+
+        Storage::fake('uploads');
+        $user = User::factory()->create(['password' => 'password123']);
+        $token = $this->postJson('/api/auth/login', [
+            'email' => $user->email,
+            'password' => 'password123',
+        ])->json('token');
+
+        $this->withToken($token)
+            ->postJson('/api/files', ['file' => UploadedFile::fake()->create('a.pdf', 10)])
+            ->assertCreated();
+
+        $this->withToken($token)
+            ->postJson('/api/files', ['file' => UploadedFile::fake()->create('b.pdf', 10)])
+            ->assertTooManyRequests();
     }
 
     /**
