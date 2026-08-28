@@ -189,6 +189,14 @@ efface aussi la liste noire des jetons JWT, ce qui rend valides jusqu'à leur
 échéance des jetons pourtant déconnectés. Raisonnement complet dans
 [docs/architecture.md](docs/architecture.md#limites-assumées-et-voie-de-production).
 
+## Piste frontend : lint d'accessibilité
+
+`eslint-plugin-vuejs-accessibility` n'est pas installé (lot B18-B26,
+2026-08-28). Écarté pour ce lot : l'activer sur l'ensemble du frontend
+remonterait des erreurs sur des composants hors périmètre, sans lien avec le
+travail en cours. À évaluer pour une passe qualité dédiée, en mode `warn` ou
+sur un périmètre de fichiers restreint le temps de résorber l'existant.
+
 ## Ce que ce document ne dit pas
 
 - **Installation, mise en route, prérequis PHP** — [README.md](README.md)
