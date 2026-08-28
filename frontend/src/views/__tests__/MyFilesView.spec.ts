@@ -377,5 +377,63 @@ describe('MyFilesView', () => {
 
       expect(pushSpy).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/mon-espace' } })
     })
+
+    it('affiche « Suppression... » et neutralise le bouton pendant la requête', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, pageOf([activeFile()])))
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      let resolveDelete!: (response: Response) => void
+      fetchMock.mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          resolveDelete = resolve
+        }),
+      )
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('.file-row-delete-button').trigger('click')
+      await flushPromises()
+
+      const deleteButton = wrapper.find('.file-row-delete-button')
+      expect(deleteButton.attributes('disabled')).toBeDefined()
+      expect(deleteButton.text()).toBe('Suppression...')
+
+      resolveDelete(jsonResponse(204, {}))
+      await flushPromises()
+    })
+  })
+
+  describe('annonces accessibles', () => {
+    it('expose une région role="status" annonçant le chargement puis le nombre de fichiers', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile()])))
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      const live = wrapper.find('[role="status"]')
+      expect(live.attributes('aria-live')).toBe('polite')
+      expect(live.text()).toBe('1 fichier affiché.')
+    })
+
+    it('annonce l\'absence de fichiers', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, pageOf([])))
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      expect(wrapper.find('[role="status"]').text()).toBe('Aucun fichier à afficher.')
+    })
+
+    it('annonce la copie du lien', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, pageOf([activeFile()])))
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('.file-row-copy-button').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[role="status"]').text()).toBe('Lien copié !')
+    })
   })
 })

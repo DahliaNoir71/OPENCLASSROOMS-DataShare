@@ -47,6 +47,7 @@ const uploaded = ref<UploadedFile | null>(null)
 const uploadedExpiryLabel = ref('')
 const copied = ref(false)
 const copyError = ref('')
+const liveMessage = ref('')
 
 let copyResetTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -128,6 +129,7 @@ async function onSubmit(): Promise<void> {
     })
     uploadedExpiryLabel.value = expiryLabel(chosenDays).toLowerCase()
     uploaded.value = file
+    liveMessage.value = 'Félicitations, ton fichier est en ligne !'
   } catch (error) {
     if (error instanceof UploadValidationError) {
       fieldErrors.file = error.errors.file ?? []
@@ -173,6 +175,8 @@ onBeforeUnmount(() => {
 <template>
   <section class="upload-card">
     <h1 class="upload-title">Ajouter un fichier</h1>
+
+    <p class="visually-hidden" role="status" aria-live="polite">{{ liveMessage }}</p>
 
     <div v-if="uploaded" class="upload-success">
       <p class="upload-success-message">
@@ -287,6 +291,18 @@ onBeforeUnmount(() => {
   border-radius: var(--ds-radius-card);
   box-shadow: var(--ds-shadow-card);
   padding: var(--ds-space-lg);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .upload-title {

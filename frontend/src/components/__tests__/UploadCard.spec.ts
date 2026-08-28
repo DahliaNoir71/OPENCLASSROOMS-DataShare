@@ -210,6 +210,19 @@ describe('UploadCard', () => {
     expect(wrapper.find('.upload-copy-button').text()).toBe('Lien copié !')
   })
 
+  it('expose une région role="status" annonçant le succès du téléversement', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { data: uploadedFile }))
+    const wrapper = mountCard()
+
+    await attachFile(wrapper, pdf())
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    const live = wrapper.find('[role="status"]')
+    expect(live.attributes('aria-live')).toBe('polite')
+    expect(live.text()).toBe('Félicitations, ton fichier est en ligne !')
+  })
+
   it("mentionne la durée choisie quand elle n'est pas celle par défaut", async () => {
     fetchMock.mockResolvedValue(jsonResponse(201, { data: uploadedFile }))
     const wrapper = mountCard()

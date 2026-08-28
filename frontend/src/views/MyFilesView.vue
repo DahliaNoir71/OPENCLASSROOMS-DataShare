@@ -45,15 +45,21 @@ const copiedId = ref<number | null>(null)
 const removingId = ref<number | null>(null)
 const copyError = ref('')
 const copyErrorId = ref<number | null>(null)
+const liveMessage = ref('')
 
 let copyResetTimer: ReturnType<typeof setTimeout> | undefined
 
 async function fetchPage(): Promise<void> {
   loading.value = true
   globalError.value = ''
+  liveMessage.value = 'Chargement…'
 
   try {
     filesPage.value = await filesStore.list({ status: status.value, page: page.value })
+
+    const count = filesPage.value.data.length
+    liveMessage.value =
+      count === 0 ? 'Aucun fichier à afficher.' : `${count} fichier${count > 1 ? 's' : ''} affiché${count > 1 ? 's' : ''}.`
   } catch (error) {
     if (error instanceof ListUnauthenticatedError) {
       await router.push({ path: '/login', query: { redirect: route.fullPath } })
@@ -103,6 +109,7 @@ async function copyLink(file: FilesPage['data'][number]): Promise<void> {
   }
 
   copiedId.value = file.id
+  liveMessage.value = 'Lien copié !'
   clearTimeout(copyResetTimer)
   copyResetTimer = setTimeout(() => {
     copiedId.value = null
@@ -159,6 +166,8 @@ onMounted(() => {
       <section class="my-files-card">
         <h1 class="my-files-title">Mes fichiers</h1>
 
+        <p class="visually-hidden" role="status" aria-live="polite">{{ liveMessage }}</p>
+
         <div class="status-switch" role="radiogroup" aria-label="Filtrer par état">
           <button
             v-for="option in STATUS_OPTIONS"
@@ -205,7 +214,7 @@ onMounted(() => {
                     :disabled="removingId === file.id"
                     @click="removeFile(file)"
                   >
-                    Supprimer
+                    {{ removingId === file.id ? 'Suppression...' : 'Supprimer' }}
                   </button>
                 </div>
               </div>
@@ -267,6 +276,18 @@ onMounted(() => {
   border-radius: var(--ds-radius-card);
   box-shadow: var(--ds-shadow-card);
   padding: var(--ds-space-lg);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .my-files-title {

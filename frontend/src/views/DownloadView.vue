@@ -32,6 +32,7 @@ const password = ref('')
 const downloading = ref(false)
 const done = ref(false)
 const globalError = ref('')
+const liveMessage = ref('')
 
 const fieldErrors = reactive({
   password: [] as string[],
@@ -107,6 +108,7 @@ async function onSubmit(): Promise<void> {
     )
     saveBlob(blob, link.value.original_name)
     done.value = true
+    liveMessage.value = 'Le téléchargement a démarré.'
   } catch (error) {
     if (error instanceof LinkPasswordError) {
       fieldErrors.password = [error.message]
@@ -141,6 +143,8 @@ onMounted(() => {
     <main class="download-main">
       <section class="download-card">
         <h1 class="download-title">Télécharger un fichier</h1>
+
+        <p class="visually-hidden" role="status" aria-live="polite">{{ liveMessage }}</p>
 
         <p v-if="loading" class="download-status-text">Chargement…</p>
 
@@ -244,6 +248,18 @@ onMounted(() => {
   border-radius: var(--ds-radius-card);
   box-shadow: var(--ds-shadow-card);
   padding: var(--ds-space-lg);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .download-title {

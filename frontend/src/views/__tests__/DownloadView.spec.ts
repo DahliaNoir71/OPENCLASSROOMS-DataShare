@@ -176,6 +176,10 @@ describe('DownloadView', () => {
     expect(saveBlob).toHaveBeenCalledWith(blob, 'rapport.pdf')
     expect(wrapper.text()).toContain('Le téléchargement a démarré.')
     expect(wrapper.find('.download-submit').attributes('disabled')).toBeDefined()
+
+    const live = wrapper.find('[role="status"]')
+    expect(live.attributes('aria-live')).toBe('polite')
+    expect(live.text()).toBe('Le téléchargement a démarré.')
   })
 
   it('affiche un 401 sous le champ mot de passe sans quitter l’écran', async () => {

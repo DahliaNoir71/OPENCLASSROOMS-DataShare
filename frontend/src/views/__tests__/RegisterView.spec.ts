@@ -101,6 +101,30 @@ describe('RegisterView', () => {
     expect(registerSpy).not.toHaveBeenCalled()
   })
 
+  it('affiche « Création... » et neutralise le bouton pendant la soumission', async () => {
+    let resolveFetch!: (response: Response) => void
+    fetchMock.mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveFetch = resolve
+      }),
+    )
+    const wrapper = mountView()
+
+    await wrapper.find('#register-email').setValue('user@example.com')
+    await wrapper.find('#register-password').setValue('motdepasse123')
+    await wrapper.find('#register-password-confirmation').setValue('motdepasse123')
+    await wrapper.find('form').trigger('submit.prevent')
+
+    const submit = wrapper.find('.register-submit')
+    expect(submit.attributes('disabled')).toBeDefined()
+    expect(submit.text()).toBe('Création...')
+
+    resolveFetch(
+      jsonResponse(201, { token: 'jwt-test', user: { id: 1, email: 'user@example.com' } }),
+    )
+    await flushPromises()
+  })
+
   it('appelle register avec les valeurs exactes quand le formulaire est valide', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(201, { token: 'jwt-test', user: { id: 1, email: 'user@example.com' } }),
