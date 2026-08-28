@@ -6,8 +6,51 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import UploadCard from '../UploadCard.vue'
 import { TOKEN_STORAGE_KEY } from '@/stores/auth'
 
-function jsonResponse(status: number, body: unknown): Response {
-  return { status, json: () => Promise.resolve(body) } as unknown as Response
+/** Fausse XHR pilotable à la main : UploadCard passe par `filesStore.upload()`, en XHR. */
+class FakeXMLHttpRequest {
+  static instances: FakeXMLHttpRequest[] = []
+
+  method = ''
+  url = ''
+  status = 0
+  responseText = ''
+  headers: Record<string, string> = {}
+  body: unknown
+  upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null }
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+
+  open(method: string, url: string): void {
+    this.method = method
+    this.url = url
+  }
+
+  setRequestHeader(key: string, value: string): void {
+    this.headers[key] = value
+  }
+
+  send(body: unknown): void {
+    this.body = body
+    FakeXMLHttpRequest.instances.push(this)
+  }
+
+  respond(status: number, responseText: string): void {
+    this.status = status
+    this.responseText = responseText
+    this.onload?.()
+  }
+
+  progress(loaded: number, total: number, lengthComputable = true): void {
+    this.upload.onprogress?.({ loaded, total, lengthComputable } as ProgressEvent)
+  }
+
+  fail(): void {
+    this.onerror?.()
+  }
+}
+
+function lastXhr(): FakeXMLHttpRequest {
+  return FakeXMLHttpRequest.instances[FakeXMLHttpRequest.instances.length - 1]!
 }
 
 const uploadedFile = {
@@ -22,7 +65,6 @@ const uploadedFile = {
   created_at: '2026-08-21T10:00:00.000000Z',
 }
 
-const fetchMock = vi.fn<typeof fetch>()
 const writeTextMock = vi.fn<(text: string) => Promise<void>>()
 
 let pinia: Pinia
@@ -56,10 +98,10 @@ function oversizedFile(): File {
 beforeEach(async () => {
   localStorage.clear()
   localStorage.setItem(TOKEN_STORAGE_KEY, 'jwt-test')
-  fetchMock.mockReset()
   writeTextMock.mockReset()
   writeTextMock.mockResolvedValue(undefined)
-  vi.stubGlobal('fetch', fetchMock)
+  FakeXMLHttpRequest.instances = []
+  vi.stubGlobal('XMLHttpRequest', FakeXMLHttpRequest)
   Object.defineProperty(navigator, 'clipboard', {
     value: { writeText: writeTextMock },
     configurable: true,
@@ -158,7 +200,7 @@ describe('UploadCard', () => {
     await wrapper.find('form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(FakeXMLHttpRequest.instances).toHaveLength(0)
   })
 
   it('refuse un mot de passe de moins de 6 caractères sans appeler le serveur', async () => {
@@ -172,7 +214,7 @@ describe('UploadCard', () => {
     expect(wrapper.find('#upload-password-error').text()).toBe(
       'Le mot de passe doit contenir au moins 6 caractères.',
     )
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(FakeXMLHttpRequest.instances).toHaveLength(0)
   })
 
   it('refuse un mot de passe de plus de 72 caractères sans appeler le serveur', async () => {
@@ -186,7 +228,7 @@ describe('UploadCard', () => {
     expect(wrapper.find('#upload-password-error').text()).toBe(
       'Le mot de passe ne doit pas dépasser 72 caractères.',
     )
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(FakeXMLHttpRequest.instances).toHaveLength(0)
   })
 
   it('avertit sans bloquer quand le fichier choisi porte une extension généralement refusée', async () => {
@@ -209,12 +251,6 @@ describe('UploadCard', () => {
   })
 
   it('désactive le bouton pendant le téléversement', async () => {
-    let resolveFetch: (response: Response) => void = () => {}
-    fetchMock.mockReturnValue(
-      new Promise<Response>((resolve) => {
-        resolveFetch = resolve
-      }),
-    )
     const wrapper = mountCard()
 
     await attachFile(wrapper, pdf())
@@ -224,16 +260,58 @@ describe('UploadCard', () => {
     expect(submit.attributes('disabled')).toBeDefined()
     expect(submit.text()).toBe('Téléversement...')
 
-    resolveFetch(jsonResponse(201, { data: uploadedFile }))
+    lastXhr().respond(201, JSON.stringify({ data: uploadedFile }))
     await flushPromises()
   })
 
-  it("bascule sur l'état final avec la durée retenue, le lien et la copie", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201, { data: uploadedFile }))
+  it('affiche une barre de progression avec le pourcentage annoncé par le callback', async () => {
     const wrapper = mountCard()
 
     await attachFile(wrapper, pdf())
     await wrapper.find('form').trigger('submit.prevent')
+
+    const xhr = lastXhr()
+    xhr.progress(42, 100)
+    await flushPromises()
+
+    const progressbar = wrapper.find('[role="progressbar"]')
+    expect(progressbar.attributes('aria-valuemin')).toBe('0')
+    expect(progressbar.attributes('aria-valuemax')).toBe('100')
+    expect(progressbar.attributes('aria-valuenow')).toBe('42')
+    expect(wrapper.find('.upload-progress-label').text()).toBe('42 %')
+
+    xhr.respond(201, JSON.stringify({ data: uploadedFile }))
+    await flushPromises()
+  })
+
+  it('bascule sur « Traitement... » une fois la progression à 100 %, réponse serveur non reçue', async () => {
+    const wrapper = mountCard()
+
+    await attachFile(wrapper, pdf())
+    await wrapper.find('form').trigger('submit.prevent')
+
+    const xhr = lastXhr()
+    xhr.progress(100, 100)
+    await flushPromises()
+
+    const submit = wrapper.find('.upload-submit')
+    expect(submit.text()).toBe('Traitement...')
+    expect(submit.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('100')
+
+    const live = wrapper.find('[role="status"]')
+    expect(live.text()).toBe('Fichier envoyé, traitement en cours...')
+
+    xhr.respond(201, JSON.stringify({ data: uploadedFile }))
+    await flushPromises()
+  })
+
+  it("bascule sur l'état final avec la durée retenue, le lien et la copie", async () => {
+    const wrapper = mountCard()
+
+    await attachFile(wrapper, pdf())
+    await wrapper.find('form').trigger('submit.prevent')
+    lastXhr().respond(201, JSON.stringify({ data: uploadedFile }))
     await flushPromises()
 
     expect(wrapper.find('form').exists()).toBe(false)
@@ -254,11 +332,11 @@ describe('UploadCard', () => {
   })
 
   it('expose une région role="status" annonçant le succès du téléversement', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201, { data: uploadedFile }))
     const wrapper = mountCard()
 
     await attachFile(wrapper, pdf())
     await wrapper.find('form').trigger('submit.prevent')
+    lastXhr().respond(201, JSON.stringify({ data: uploadedFile }))
     await flushPromises()
 
     const live = wrapper.find('[role="status"]')
@@ -267,25 +345,26 @@ describe('UploadCard', () => {
   })
 
   it("mentionne la durée choisie quand elle n'est pas celle par défaut", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201, { data: uploadedFile }))
     const wrapper = mountCard()
 
     await attachFile(wrapper, pdf())
     await wrapper.find('#upload-expiry').setValue('1')
     await wrapper.find('form').trigger('submit.prevent')
+    const xhr = lastXhr()
+    expect((xhr.body as FormData).get('expires_in_days')).toBe('1')
+    xhr.respond(201, JSON.stringify({ data: uploadedFile }))
     await flushPromises()
 
-    expect((fetchMock.mock.calls[0]![1]!.body as FormData).get('expires_in_days')).toBe('1')
     expect(wrapper.find('.upload-success-message').text()).toContain('une journée')
   })
 
   it("signale à l'utilisateur que la copie automatique a échoué", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201, { data: uploadedFile }))
     writeTextMock.mockRejectedValue(new Error('refusé'))
     const wrapper = mountCard()
 
     await attachFile(wrapper, pdf())
     await wrapper.find('form').trigger('submit.prevent')
+    lastXhr().respond(201, JSON.stringify({ data: uploadedFile }))
     await flushPromises()
 
     await wrapper.find('.upload-copy-button').trigger('click')
@@ -297,16 +376,17 @@ describe('UploadCard', () => {
   })
 
   it('affiche un 422 sous le champ fichier', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse(422, {
-        message: 'The given data was invalid.',
-        errors: { file: ['Les fichiers de type « exe » ne sont pas autorisés.'] },
-      }),
-    )
     const wrapper = mountCard()
 
     await attachFile(wrapper, pdf())
     await wrapper.find('form').trigger('submit.prevent')
+    lastXhr().respond(
+      422,
+      JSON.stringify({
+        message: 'The given data was invalid.',
+        errors: { file: ['Les fichiers de type « exe » ne sont pas autorisés.'] },
+      }),
+    )
     await flushPromises()
 
     expect(wrapper.find('#upload-file-error').text()).toBe(
@@ -319,24 +399,24 @@ describe('UploadCard', () => {
     const wrapper = mountCard()
     await attachFile(wrapper, pdf())
 
-    fetchMock.mockResolvedValueOnce(jsonResponse(413, { message: 'Fichier trop volumineux.' }))
     await wrapper.find('form').trigger('submit.prevent')
+    lastXhr().respond(413, JSON.stringify({ message: 'Fichier trop volumineux.' }))
     await flushPromises()
     expect(wrapper.find('.form-error-global').text()).toBe('Fichier trop volumineux.')
 
-    fetchMock.mockResolvedValueOnce(jsonResponse(429, { message: 'Trop de téléversements.' }))
     await wrapper.find('form').trigger('submit.prevent')
+    lastXhr().respond(429, JSON.stringify({ message: 'Trop de téléversements.' }))
     await flushPromises()
     expect(wrapper.find('.form-error-global').text()).toBe('Trop de téléversements.')
   })
 
   it('redirige vers la connexion sur un 401, en mémorisant la page courante', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(401, { message: 'Unauthenticated.' }))
     const pushSpy = vi.spyOn(router, 'push')
     const wrapper = mountCard()
 
     await attachFile(wrapper, pdf())
     await wrapper.find('form').trigger('submit.prevent')
+    lastXhr().respond(401, JSON.stringify({ message: 'Unauthenticated.' }))
     await flushPromises()
 
     expect(pushSpy).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/' } })
