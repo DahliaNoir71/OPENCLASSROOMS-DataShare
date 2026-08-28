@@ -140,7 +140,7 @@ onMounted(() => {
   <div class="download-page">
     <AppHeader />
 
-    <main class="download-main">
+    <main id="main-content" class="download-main" tabindex="-1">
       <section class="download-card">
         <h1 class="download-title">Télécharger un fichier</h1>
 

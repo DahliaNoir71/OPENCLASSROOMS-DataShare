@@ -15,13 +15,15 @@ async function handleLogout(): Promise<void> {
 <template>
   <header class="app-header">
     <span class="app-header-logo">DataShare</span>
-    <div v-if="authStore.token" class="app-header-actions">
-      <router-link class="app-header-login" to="/mon-espace">Mon espace</router-link>
-      <button type="button" class="app-header-logout" @click="handleLogout">
-        Se déconnecter
-      </button>
-    </div>
-    <router-link v-else class="app-header-login" to="/login">Se connecter</router-link>
+    <nav aria-label="Navigation principale">
+      <div v-if="authStore.token" class="app-header-actions">
+        <router-link class="app-header-login" to="/mon-espace">Mon espace</router-link>
+        <button type="button" class="app-header-logout" @click="handleLogout">
+          Se déconnecter
+        </button>
+      </div>
+      <router-link v-else class="app-header-login" to="/login">Se connecter</router-link>
+    </nav>
   </header>
 </template>
 

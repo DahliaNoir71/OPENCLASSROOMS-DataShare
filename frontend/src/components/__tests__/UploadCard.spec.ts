@@ -125,6 +125,16 @@ describe('UploadCard', () => {
     expect(wrapper.find('.upload-change-button').text()).toBe('Changer')
   })
 
+  it('donne un nom accessible complet au bouton « Changer »', async () => {
+    const wrapper = mountCard()
+
+    await attachFile(wrapper, pdf())
+
+    expect(wrapper.find('.upload-change-button').attributes('aria-label')).toBe(
+      'Changer de fichier',
+    )
+  })
+
   it("désactive « Téléverser » tant qu'aucun fichier n'est choisi", async () => {
     const wrapper = mountCard()
 

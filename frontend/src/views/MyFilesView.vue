@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, useTemplateRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AppHeader from '@/components/AppHeader.vue'
@@ -49,18 +49,45 @@ const liveMessage = ref('')
 
 let copyResetTimer: ReturnType<typeof setTimeout> | undefined
 
+// Vue courante de la requête /api/files en cours : abandonnée dès qu'un
+// nouveau filtre/page la rend périmée, pour qu'une réponse tardive ne vienne
+// jamais écraser un état plus récent.
+let listAbortController: AbortController | undefined
+
 async function fetchPage(): Promise<void> {
+  listAbortController?.abort()
+  const controller = new AbortController()
+  listAbortController = controller
+
+  // Premier chargement : la liste (encore vide) cède la place au message
+  // « Chargement… ». Rafraîchissement (filtre/page) : la liste courante reste
+  // affichée, seul un état "occupé" discret la signale (voir template).
+  const isFirstLoad = filesPage.value === null
+
   loading.value = true
   globalError.value = ''
-  liveMessage.value = 'Chargement…'
+  if (isFirstLoad) {
+    liveMessage.value = 'Chargement…'
+  }
 
   try {
-    filesPage.value = await filesStore.list({ status: status.value, page: page.value })
+    const result = await filesStore.list({
+      status: status.value,
+      page: page.value,
+      signal: controller.signal,
+    })
+    filesPage.value = result
 
-    const count = filesPage.value.data.length
+    const count = result.data.length
     liveMessage.value =
       count === 0 ? 'Aucun fichier à afficher.' : `${count} fichier${count > 1 ? 's' : ''} affiché${count > 1 ? 's' : ''}.`
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      // Requête périmée, remplacée par une plus récente : aucun état ne doit
+      // en dépendre, y compris via le `finally` ci-dessous (garde d'identité).
+      return
+    }
+
     if (error instanceof ListUnauthenticatedError) {
       await router.push({ path: '/login', query: { redirect: route.fullPath } })
     } else if (error instanceof ListValidationError) {
@@ -77,7 +104,12 @@ async function fetchPage(): Promise<void> {
       globalError.value = 'Une erreur est survenue. Veuillez réessayer plus tard.'
     }
   } finally {
-    loading.value = false
+    // Une requête abandonnée ne doit rien modifier en sortie, pas même via ce
+    // `finally` : on ne touche `loading` que si ce controller est toujours le
+    // plus récent (sinon une requête plus récente a déjà pris la main).
+    if (listAbortController === controller) {
+      loading.value = false
+    }
   }
 }
 
@@ -89,6 +121,33 @@ function selectStatus(value: FileStatus): void {
   status.value = value
   page.value = 1
   void fetchPage()
+}
+
+const statusButtons = ref<(HTMLButtonElement | null)[]>([])
+
+function setStatusButtonRef(el: Element | null, index: number): void {
+  statusButtons.value[index] = el as HTMLButtonElement | null
+}
+
+/** Roving tabindex (WAI-ARIA radiogroup) : les flèches déplacent la sélection
+ * et le focus ensemble, de façon cyclique aux extrémités. */
+function onStatusKeydown(event: KeyboardEvent, index: number): void {
+  const delta =
+    event.key === 'ArrowRight' || event.key === 'ArrowDown'
+      ? 1
+      : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+        ? -1
+        : 0
+
+  if (delta === 0) {
+    return
+  }
+
+  event.preventDefault()
+
+  const nextIndex = (index + delta + STATUS_OPTIONS.length) % STATUS_OPTIONS.length
+  selectStatus(STATUS_OPTIONS[nextIndex]!.value)
+  statusButtons.value[nextIndex]?.focus()
 }
 
 function goToPage(target: number): void {
@@ -116,13 +175,35 @@ async function copyLink(file: FilesPage['data'][number]): Promise<void> {
   }, COPY_FEEDBACK_MS)
 }
 
-async function removeFile(file: FilesPage['data'][number]): Promise<void> {
-  const confirmed = window.confirm(
-    `Supprimer définitivement « ${file.original_name} » ? Cette action est irréversible.`,
-  )
-  if (!confirmed) {
+const deleteDialog = useTemplateRef<HTMLDialogElement>('deleteDialog')
+const fileToDelete = ref<FilesPage['data'][number] | null>(null)
+let deleteDialogTrigger: HTMLElement | null = null
+
+function requestDelete(file: FilesPage['data'][number], event: MouseEvent): void {
+  fileToDelete.value = file
+  deleteDialogTrigger = event.currentTarget as HTMLElement
+  deleteDialog.value?.showModal()
+}
+
+function cancelDelete(): void {
+  deleteDialog.value?.close()
+}
+
+/** `close` couvre aussi bien « Annuler » que l'abandon natif du dialogue par
+ * Échap (`cancel`, qui ferme puis déclenche `close`) : un seul point de sortie. */
+function onDeleteDialogClose(): void {
+  fileToDelete.value = null
+  deleteDialogTrigger?.focus()
+  deleteDialogTrigger = null
+}
+
+async function confirmDelete(): Promise<void> {
+  const file = fileToDelete.value
+  if (!file) {
     return
   }
+
+  deleteDialog.value?.close()
 
   removingId.value = file.id
   globalError.value = ''
@@ -162,7 +243,7 @@ onMounted(() => {
   <div class="my-files-page">
     <AppHeader />
 
-    <main class="my-files-main">
+    <main id="main-content" class="my-files-main" tabindex="-1">
       <section class="my-files-card">
         <h1 class="my-files-title">Mes fichiers</h1>
 
@@ -170,14 +251,17 @@ onMounted(() => {
 
         <div class="status-switch" role="radiogroup" aria-label="Filtrer par état">
           <button
-            v-for="option in STATUS_OPTIONS"
+            v-for="(option, index) in STATUS_OPTIONS"
             :key="option.value"
+            :ref="(el) => setStatusButtonRef(el as Element | null, index)"
             type="button"
             class="status-switch-option"
             :class="{ 'status-switch-option--selected': status === option.value }"
             role="radio"
             :aria-checked="status === option.value"
+            :tabindex="status === option.value ? 0 : -1"
             @click="selectStatus(option.value)"
+            @keydown="onStatusKeydown($event, index)"
           >
             {{ option.label }}
           </button>
@@ -185,45 +269,70 @@ onMounted(() => {
 
         <p v-if="globalError" class="form-error-global" role="alert">{{ globalError }}</p>
 
-        <p v-if="loading" class="my-files-status-text">Chargement…</p>
+        <p v-if="loading && !filesPage" class="my-files-status-text">Chargement…</p>
 
         <template v-else-if="filesPage">
-          <p v-if="filesPage.data.length === 0" class="my-files-status-text">
-            Aucun fichier à afficher.
-          </p>
+          <div
+            class="file-list-region"
+            :class="{ 'file-list-region--refreshing': loading }"
+            :aria-busy="loading ? 'true' : undefined"
+          >
+            <p v-if="filesPage.data.length === 0" class="my-files-status-text">
+              Aucun fichier à afficher.
+            </p>
 
-          <ul v-else class="file-list">
-            <li v-for="file in filesPage.data" :key="file.id" class="file-row">
-              <div class="file-row-top">
-                <div class="file-row-main">
-                  <span class="file-row-name">{{ file.original_name }}</span>
-                  <span class="file-row-meta">
-                    {{ formatFileSize(file.size) }} · expire le {{ formatDate(file.expires_at) }}
-                  </span>
+            <ul v-else class="file-list">
+              <li v-for="file in filesPage.data" :key="file.id" class="file-row">
+                <div class="file-row-top">
+                  <div class="file-row-main">
+                    <span class="file-row-name">
+                      <svg
+                        v-if="file.protected"
+                        class="file-row-protected-icon"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <rect x="3.5" y="7" width="9" height="6.5" rx="1.3" />
+                        <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+                      </svg>
+                      <span v-if="file.protected" class="visually-hidden">
+                        Protégé par mot de passe :
+                      </span>
+                      {{ file.original_name }}
+                    </span>
+                    <span class="file-row-meta">
+                      {{ formatFileSize(file.size) }} · expire le {{ formatDate(file.expires_at) }}
+                    </span>
+                  </div>
+
+                  <div class="file-row-actions">
+                    <span v-if="file.expired" class="file-row-expired">Expiré</span>
+                    <button v-else type="button" class="file-row-copy-button" @click="copyLink(file)">
+                      {{ copiedId === file.id ? 'Lien copié !' : 'Copier le lien' }}
+                    </button>
+
+                    <button
+                      type="button"
+                      class="file-row-delete-button"
+                      :disabled="removingId === file.id"
+                      @click="requestDelete(file, $event)"
+                    >
+                      {{ removingId === file.id ? 'Suppression...' : 'Supprimer' }}
+                    </button>
+                  </div>
                 </div>
 
-                <div class="file-row-actions">
-                  <span v-if="file.expired" class="file-row-expired">Expiré</span>
-                  <button v-else type="button" class="file-row-copy-button" @click="copyLink(file)">
-                    {{ copiedId === file.id ? 'Lien copié !' : 'Copier le lien' }}
-                  </button>
-
-                  <button
-                    type="button"
-                    class="file-row-delete-button"
-                    :disabled="removingId === file.id"
-                    @click="removeFile(file)"
-                  >
-                    {{ removingId === file.id ? 'Suppression...' : 'Supprimer' }}
-                  </button>
-                </div>
-              </div>
-
-              <p v-if="copyErrorId === file.id" class="file-row-copy-error" role="alert">
-                {{ copyError }}
-              </p>
-            </li>
-          </ul>
+                <p v-if="copyErrorId === file.id" class="file-row-copy-error" role="alert">
+                  {{ copyError }}
+                </p>
+              </li>
+            </ul>
+          </div>
 
           <div v-if="filesPage.data.length > 0" class="pagination">
             <button
@@ -249,6 +358,28 @@ onMounted(() => {
         </template>
       </section>
     </main>
+
+    <dialog
+      ref="deleteDialog"
+      class="confirm-dialog"
+      aria-labelledby="confirm-dialog-title"
+      aria-modal="true"
+      @close="onDeleteDialogClose"
+    >
+      <h2 id="confirm-dialog-title" class="confirm-dialog-title">Supprimer le fichier</h2>
+      <p class="confirm-dialog-message">
+        Supprimer définitivement « {{ fileToDelete?.original_name }} » ? Cette action est
+        irréversible.
+      </p>
+      <div class="confirm-dialog-actions">
+        <button type="button" class="confirm-dialog-cancel" autofocus @click="cancelDelete">
+          Annuler
+        </button>
+        <button type="button" class="confirm-dialog-confirm" @click="confirmDelete">
+          Supprimer
+        </button>
+      </div>
+    </dialog>
 
     <footer class="app-footer">Copyright DataShare® 2025</footer>
   </div>
@@ -335,6 +466,14 @@ onMounted(() => {
   text-align: center;
 }
 
+.file-list-region {
+  transition: opacity 0.15s ease;
+}
+
+.file-list-region--refreshing {
+  opacity: 0.6;
+}
+
 .file-list {
   list-style: none;
   display: flex;
@@ -382,6 +521,14 @@ onMounted(() => {
   line-height: var(--ds-line-height-accent);
   font-weight: var(--ds-font-weight-accent);
   color: var(--ds-color-text-secondary);
+}
+
+.file-row-protected-icon {
+  flex-shrink: 0;
+  width: var(--ds-size-icon);
+  height: var(--ds-size-icon);
+  vertical-align: -0.2em;
+  color: var(--ds-color-text-muted);
 }
 
 .file-row-meta {
@@ -484,6 +631,72 @@ onMounted(() => {
 .app-footer {
   display: none;
   color: var(--ds-color-text-inverse);
+}
+
+.confirm-dialog {
+  width: 100%;
+  max-width: 400px;
+  border: none;
+  border-radius: var(--ds-radius-card);
+  box-shadow: var(--ds-shadow-card);
+  padding: var(--ds-space-lg);
+  color: var(--ds-color-text);
+}
+
+.confirm-dialog::backdrop {
+  background: color-mix(in srgb, black 40%, transparent);
+}
+
+.confirm-dialog-title {
+  margin-bottom: var(--ds-space-sm);
+  font-family: var(--ds-font-family-heading);
+  font-size: var(--ds-font-size-h2);
+  line-height: var(--ds-line-height-h2);
+  font-weight: var(--ds-font-weight-h2);
+  color: var(--ds-color-text);
+}
+
+.confirm-dialog-message {
+  color: var(--ds-color-text-secondary);
+  font-family: var(--ds-font-family-body);
+  font-size: var(--ds-font-size-body);
+  line-height: var(--ds-line-height-body);
+  font-weight: var(--ds-font-weight-body);
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ds-space-xs);
+  margin-top: var(--ds-space-lg);
+}
+
+.confirm-dialog-cancel,
+.confirm-dialog-confirm {
+  border-radius: var(--ds-radius-button);
+  padding: var(--ds-space-xs) var(--ds-space-md);
+  font-family: var(--ds-font-family-heading);
+  font-size: var(--ds-font-size-input);
+  line-height: var(--ds-line-height-input);
+  font-weight: var(--ds-font-weight-input);
+}
+
+.confirm-dialog-cancel {
+  border: var(--ds-border-width) solid var(--ds-color-accent-border-soft);
+  background: transparent;
+  color: var(--ds-color-accent);
+}
+
+.confirm-dialog-confirm {
+  border: var(--ds-border-width) solid var(--ds-color-error-border);
+  background: var(--ds-color-error-bg);
+  color: var(--ds-color-error-text);
+}
+
+.confirm-dialog-cancel:focus-visible,
+.confirm-dialog-confirm:focus-visible {
+  outline: 2px solid var(--ds-color-accent-border);
+  outline-offset: 2px;
 }
 
 @media (min-width: 768px) {
