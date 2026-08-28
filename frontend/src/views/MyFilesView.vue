@@ -20,7 +20,7 @@ import { formatFileSize } from '@/utils/formatFileSize'
 const STATUS_OPTIONS: { value: FileStatus; label: string }[] = [
   { value: 'all', label: 'Tous' },
   { value: 'active', label: 'Actifs' },
-  { value: 'expired', label: 'Expiré' },
+  { value: 'expired', label: 'Expirés' },
 ]
 
 const COPY_FEEDBACK_MS = 2000
@@ -162,7 +162,7 @@ async function copyLink(file: FilesPage['data'][number]): Promise<void> {
   try {
     await navigator.clipboard.writeText(file.link)
   } catch {
-    copyError.value = 'La copie a échoué, copie le lien manuellement.'
+    copyError.value = 'La copie a échoué, copiez le lien manuellement.'
     copyErrorId.value = file.id
     return
   }

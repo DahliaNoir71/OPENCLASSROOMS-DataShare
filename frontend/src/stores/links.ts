@@ -96,7 +96,7 @@ export const useLinksStore = defineStore('links', () => {
     if (response.status === 429) {
       const data = await readJson<MessageResponse>(response)
       throw new LinkMessageError(
-        data?.message ?? 'Trop de requêtes. Réessaie dans quelques instants.',
+        data?.message ?? 'Trop de requêtes. Réessayez dans quelques instants.',
       )
     }
 
@@ -147,7 +147,7 @@ export const useLinksStore = defineStore('links', () => {
     if (response.status === 429) {
       const data = await readJson<MessageResponse>(response)
       throw new LinkMessageError(
-        data?.message ?? 'Trop de requêtes. Réessaie dans quelques instants.',
+        data?.message ?? 'Trop de requêtes. Réessayez dans quelques instants.',
       )
     }
 

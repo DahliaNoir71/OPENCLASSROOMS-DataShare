@@ -165,7 +165,7 @@ describe('RegisterView', () => {
     await fillAndSubmit(wrapper)
 
     expect(wrapper.find('.form-error-global').text()).toBe(
-      'Connexion au serveur impossible. Vérifie ta connexion et réessaie.',
+      'Connexion au serveur impossible. Vérifiez votre connexion et réessayez.',
     )
   })
 

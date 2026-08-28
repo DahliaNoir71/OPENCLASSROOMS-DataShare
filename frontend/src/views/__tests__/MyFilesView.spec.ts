@@ -171,7 +171,7 @@ describe('MyFilesView', () => {
     await flushPromises()
 
     expect(wrapper.find('.file-row-copy-error').text()).toBe(
-      'La copie a échoué, copie le lien manuellement.',
+      'La copie a échoué, copiez le lien manuellement.',
     )
     expect(wrapper.find('.file-row-copy-button').text()).toBe('Copier le lien')
   })
@@ -193,7 +193,7 @@ describe('MyFilesView', () => {
     await flushPromises()
 
     const buttons = wrapper.findAll('.status-switch-option')
-    expect(buttons.map((button) => button.text())).toEqual(['Tous', 'Actifs', 'Expiré'])
+    expect(buttons.map((button) => button.text())).toEqual(['Tous', 'Actifs', 'Expirés'])
 
     await buttons[1]!.trigger('click')
     await flushPromises()
@@ -553,7 +553,7 @@ describe('MyFilesView', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(2)
       expect(wrapper.find('.form-error-global').text()).toBe(
-        'Connexion au serveur impossible. Vérifie ta connexion et réessaie.',
+        'Connexion au serveur impossible. Vérifiez votre connexion et réessayez.',
       )
       expect(wrapper.find('.file-row-name').text()).toContain('rapport.pdf')
     })

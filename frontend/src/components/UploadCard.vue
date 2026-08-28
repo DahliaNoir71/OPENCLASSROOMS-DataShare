@@ -182,7 +182,7 @@ async function onSubmit(): Promise<void> {
     })
     uploadedExpiryLabel.value = expiryLabel(chosenDays).toLowerCase()
     uploaded.value = file
-    liveMessage.value = 'Félicitations, ton fichier est en ligne !'
+    liveMessage.value = 'Félicitations, votre fichier est en ligne !'
   } catch (error) {
     if (error instanceof UploadValidationError) {
       fieldErrors.file = error.errors.file ?? []
@@ -210,7 +210,7 @@ async function copyLink(): Promise<void> {
   try {
     await navigator.clipboard.writeText(uploaded.value.link)
   } catch {
-    copyError.value = 'La copie a échoué, copie le lien manuellement.'
+    copyError.value = 'La copie a échoué, copiez le lien manuellement.'
     return
   }
 
@@ -234,7 +234,7 @@ onBeforeUnmount(() => {
 
     <div v-if="uploaded" class="upload-success">
       <p class="upload-success-message">
-        Félicitations, ton fichier est en ligne ! Il restera disponible pendant
+        Félicitations, votre fichier est en ligne ! Il restera disponible pendant
         {{ uploadedExpiryLabel }}.
       </p>
 

@@ -36,7 +36,7 @@ function onUploadClick(): void {
     </main>
 
     <main v-else id="main-content" class="home-hero" tabindex="-1">
-      <h1 class="home-title">Veux-tu partager un fichier ?</h1>
+      <h1 class="home-title">Voulez-vous partager un fichier ?</h1>
 
       <button
         class="home-upload-button"

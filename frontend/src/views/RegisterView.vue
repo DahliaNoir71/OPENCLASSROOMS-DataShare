@@ -124,7 +124,7 @@ async function onSubmit(): Promise<void> {
           </div>
 
           <div class="form-field">
-            <label for="register-password-confirmation">Verification du mot de passe</label>
+            <label for="register-password-confirmation">Vérification du mot de passe</label>
             <input
               id="register-password-confirmation"
               v-model="passwordConfirmation"

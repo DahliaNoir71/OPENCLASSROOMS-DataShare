@@ -203,7 +203,7 @@ export const useFilesStore = defineStore('files', () => {
 
         if (xhr.status === 401) {
           authStore.clearSession()
-          reject(new UploadUnauthenticatedError('Session expirée. Connecte-toi de nouveau.'))
+          reject(new UploadUnauthenticatedError('Session expirée. Connectez-vous de nouveau.'))
           return
         }
 
@@ -225,7 +225,7 @@ export const useFilesStore = defineStore('files', () => {
           const data = readXhrJson<MessageResponse>(xhr)
           reject(
             new UploadMessageError(
-              data?.message ?? 'Trop de téléversements. Réessaie dans quelques instants.',
+              data?.message ?? 'Trop de téléversements. Réessayez dans quelques instants.',
             ),
           )
           return
@@ -275,7 +275,7 @@ export const useFilesStore = defineStore('files', () => {
 
     if (response.status === 401) {
       authStore.clearSession()
-      throw new ListUnauthenticatedError('Session expirée. Connecte-toi de nouveau.')
+      throw new ListUnauthenticatedError('Session expirée. Connectez-vous de nouveau.')
     }
 
     if (response.status === 422) {
@@ -286,7 +286,7 @@ export const useFilesStore = defineStore('files', () => {
     if (response.status === 429) {
       const data = await readJson<MessageResponse>(response)
       throw new ListMessageError(
-        data?.message ?? 'Trop de requêtes. Réessaie dans quelques instants.',
+        data?.message ?? 'Trop de requêtes. Réessayez dans quelques instants.',
       )
     }
 
@@ -313,7 +313,7 @@ export const useFilesStore = defineStore('files', () => {
 
     if (response.status === 401) {
       authStore.clearSession()
-      throw new RemoveUnauthenticatedError('Session expirée. Connecte-toi de nouveau.')
+      throw new RemoveUnauthenticatedError('Session expirée. Connectez-vous de nouveau.')
     }
 
     if (response.status === 404) {
@@ -324,7 +324,7 @@ export const useFilesStore = defineStore('files', () => {
     if (response.status === 429) {
       const data = await readJson<MessageResponse>(response)
       throw new RemoveMessageError(
-        data?.message ?? 'Trop de requêtes. Réessaie dans quelques instants.',
+        data?.message ?? 'Trop de requêtes. Réessayez dans quelques instants.',
       )
     }
 

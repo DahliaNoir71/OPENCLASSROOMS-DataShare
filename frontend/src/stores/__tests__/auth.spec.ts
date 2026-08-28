@@ -105,7 +105,7 @@ describe('useAuthStore', () => {
       store.register('user@example.com', 'motdepasse123', 'motdepasse123'),
     ).rejects.toMatchObject({
       name: 'AuthMessageError',
-      message: 'Connexion au serveur impossible. Vérifie ta connexion et réessaie.',
+      message: 'Connexion au serveur impossible. Vérifiez votre connexion et réessayez.',
     })
   })
 
@@ -192,7 +192,7 @@ describe('useAuthStore', () => {
 
       await expect(store.login('user@example.com', 'motdepasse123')).rejects.toMatchObject({
         name: 'AuthMessageError',
-        message: 'Connexion au serveur impossible. Vérifie ta connexion et réessaie.',
+        message: 'Connexion au serveur impossible. Vérifiez votre connexion et réessayez.',
       })
     })
   })
