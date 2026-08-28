@@ -152,7 +152,7 @@ async function onSubmit(): Promise<void> {
           <p v-if="globalError" class="form-error-global" role="alert">{{ globalError }}</p>
 
           <button class="register-submit" type="submit" :disabled="loading">
-            Créer mon compte
+            {{ loading ? 'Création...' : 'Créer mon compte' }}
           </button>
         </form>
       </section>
