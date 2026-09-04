@@ -112,6 +112,10 @@ page `welcome` par défaut. L'interface utilisateur est servie exclusivement par
 
 ## Installation
 
+Ces étapes sont automatisées par `scripts/install.sh` (et `scripts/db-setup.sh`
+pour la seule base de données) ; la suite ci-dessous reste la version
+manuelle, pas à pas.
+
 ### 1. Cloner le dépôt
 
 ```bash
