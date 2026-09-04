@@ -51,11 +51,34 @@ jobs:
         with:
           node-version: '22.18'
 
-      # npm audit lit package-lock.json seul : ni npm ci ni node_modules/ ne
-      # sont nécessaires. Politique D2 : bloquant à partir de "high".
+      # --package-lock-only : construit l'arbre virtuel depuis
+      # package-lock.json et interroge le endpoint bulk du registre. Sans ce
+      # flag et sans node_modules/, npm se rabattait sur l'endpoint quick,
+      # retiré par npm en septembre 2026 (400 Bad Request depuis).
+      # Retry : le endpoint bulk peut répondre 503 par intermittence
+      # (constaté lors de la migration quick -> bulk). On ne rejoue que les
+      # erreurs d'endpoint — une vraie détection d'advisories échoue au
+      # premier passage, sans retry.
+      # Politique D2 inchangée : bloquant à partir de "high".
       - name: npm audit
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: |
+          for i in 1 2 3; do
+            if npm audit --audit-level=high --package-lock-only > /tmp/npm-audit.log 2>&1; then
+              cat /tmp/npm-audit.log
+              exit 0
+            fi
+            cat /tmp/npm-audit.log
+            if ! grep -q "audit endpoint returned an error" /tmp/npm-audit.log; then
+              exit 1
+            fi
+            if [ "$i" -lt 3 ]; then
+              echo "Endpoint d'audit indisponible (tentative $i/3), nouvel essai dans 30 s"
+              sleep 30
+            fi
+          done
+          echo "Endpoint d'audit indisponible après 3 tentatives"
+          exit 1
 
       # Checkout nu, sans composer install ni npm ci : vendor/ et
       # node_modules/ sont absents, backend/.env est gitignoré donc absent

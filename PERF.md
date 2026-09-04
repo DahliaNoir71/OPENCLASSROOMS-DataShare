@@ -303,3 +303,258 @@ réelles.
 - La campagne a tourné sur `php artisan serve`, jamais sur une pile
   représentative d'un environnement de production (php-fpm, reverse proxy,
   réseau réel) — cf. §Réserves de validité.
+
+## Budget de performance front
+
+Le budget front couvre trois pages représentatives de `frontend/src/router` :
+`HomeView` (`/`, publique, aucun appel API au premier rendu), `DownloadView`
+(`/l/:token`, publique mais dépendante de l'API pour résoudre le token — le
+pendant navigateur de l'endpoint chargé par la campagne k6 ci-dessus) et
+`MyFilesView` (`/mon-espace`, authentifiée, la plus lourde en JS et CSS des
+six vues du routeur). `LoginView` et `RegisterView` n'ont pas été retenues :
+leur poids se situe entre `HomeView` et `MyFilesView`, sans rien ajouter aux
+deux bornes déjà couvertes.
+
+Chaque page est auditée en desktop et en mobile (préréglages Lighthouse par
+défaut), sur le build de production servi par `vite preview` — jamais sur
+`vite dev`, qui ne reflète ni le découpage en chunks ni la minification
+réels.
+
+| Budget | Valeur | Origine |
+| --- | --- | --- |
+| JS initial gzip (page la plus lourde) | ≤ 55 kB | mesure la plus haute (49,36 kB, `MyFilesView`) × 1,15, arrondie à 5 kB près |
+| CSS gzip (page la plus lourde) | ≤ 10 kB | fixé au Temps 1, marge sur la mesure la plus haute (5,86 kB) |
+| Total transféré (JS + CSS + polices, hors image du fichier téléchargé) | ≤ 150 kB | fixé au Temps 1, marge sur la mesure la plus haute (130,30 kB) |
+| Lighthouse Performance — desktop | ≥ 90 | fixé au Temps 1 |
+| Lighthouse Performance — mobile | ≥ 80 | fixé au Temps 1 |
+| Lighthouse Accessibilité / Bonnes pratiques | ≥ 90 (les deux, desktop et mobile) | fixé au Temps 1 |
+| Lighthouse SEO | ≥ 80 (desktop et mobile) | recalibré après mesure (cf. ci-dessous) |
+
+DataShare est une application de partage de fichiers par liens privés : ses
+pages n'ont pas vocation à être indexées par les moteurs de recherche, le
+référencement n'est pas un enjeu du produit. Le budget SEO est fixé sous
+celui des deux autres catégories pour cette raison, et non par indulgence
+sur une mesure qui aurait pu être corrigée — le score de 82 mesuré (cf.
+§Analyse) tient à l'absence de meta description et de titre de document par
+route, un défaut connu et non prioritaire ici.
+
+## Mesures — poids du bundle de production
+
+Sortie de `vite build` (`frontend/`), le 2026-09-04 :
+
+| Asset | Brut | Gzip |
+| --- | --- | --- |
+| JS total (12 chunks) | ~134 kB | 54,41 kB |
+| dont `AppHeader-*.js` (en-tête, chargé sur toutes les vues) | 66,64 kB | 26,23 kB |
+| dont `index-*.js` (chunk commun) | 33,22 kB | 13,17 kB |
+| CSS total (8 fichiers, un par vue + un commun) | ~34 kB | 7,45 kB |
+| Polices (`dm-sans` ×4, `inter` ×1, woff2 déjà compressé) | 80,04 kB | — |
+
+Détail complet dans
+[docs/captures/datashare-front-bundle-2026-09-04.txt](docs/captures/datashare-front-bundle-2026-09-04.txt).
+
+### Composition du JS initial par page
+
+Chunks JS effectivement chargés au premier rendu (audit réseau Lighthouse,
+poids transféré donc déjà gzippé) :
+
+**`HomeView` (`/`)**
+
+| Chunk | Poids transféré |
+| --- | --- |
+| `AppHeader-*.js` | 26,31 kB |
+| `index-*.js` | 13,44 kB |
+| `runtime-dom.esm-bundler-*.js` | 4,46 kB |
+| `files-*.js` | 1,61 kB |
+| `AppCallout-*.js` | 1,07 kB |
+| `formatFileSize-*.js` | 0,50 kB |
+| **Total** | **46,29 kB** |
+
+**`DownloadView` (`/l/:token`)**
+
+| Chunk | Poids transféré |
+| --- | --- |
+| `AppHeader-*.js` | 26,31 kB |
+| `index-*.js` | 13,44 kB |
+| `runtime-dom.esm-bundler-*.js` | 4,46 kB |
+| `DownloadView-*.js` | 3,06 kB |
+| `files-*.js` | 1,61 kB |
+| `AppCallout-*.js` | 1,07 kB |
+| `formatFileSize-*.js` | 0,50 kB |
+| **Total** | **49,34 kB** |
+
+**`MyFilesView` (`/mon-espace`)**
+
+| Chunk | Poids transféré |
+| --- | --- |
+| `AppHeader-*.js` | 26,31 kB |
+| `index-*.js` | 13,44 kB |
+| `runtime-dom.esm-bundler-*.js` | 4,46 kB |
+| `MyFilesView-*.js` | 3,07 kB |
+| `files-*.js` | 1,61 kB |
+| `AppCallout-*.js` | 1,07 kB |
+| `formatFileSize-*.js` | 0,50 kB |
+| **Total** | **49,36 kB** |
+
+Le poids transféré (audit réseau) diffère légèrement de la taille gzip
+annoncée par `vite build` pour le même chunk (par exemple `index-*.js` :
+13,17 kB annoncés contre 13,44 kB transférés) : Lighthouse mesure les octets
+réellement reçus sur le fil, `vite build` calcule un gzip de référence sur le
+fichier — les deux ne partagent ni le niveau de compression ni le moment de
+la mesure. L'écart est de l'ordre du pour cent, sans conséquence sur les
+budgets ci-dessus.
+
+## Mesures — Lighthouse
+
+Audits menés le 2026-09-04 sur le build de production (`vite preview`,
+`http://localhost:4173`), backend et base de données démarrés (cf. §Mode
+d'emploi ci-dessous). `DownloadView` et `MyFilesView` ont été auditées avec
+un profil Chromium authentifié (session ouverte manuellement) ; l'URL
+finale de chaque rapport a été vérifiée pour écarter une redirection
+silencieuse vers `/login` ou une 404.
+
+| Page | Mode | Performance | Accessibilité | Bonnes pratiques | SEO |
+| --- | --- | --- | --- | --- | --- |
+| `HomeView` (`/`) | desktop | 100 | 100 | 100 | 82 |
+| `HomeView` (`/`) | mobile | 100 | 100 | 100 | 82 |
+| `DownloadView` (`/l/:token`) | desktop | 100 | 96 | 100 | 82 |
+| `DownloadView` (`/l/:token`) | mobile | 99 | 96 | 100 | 82 |
+| `MyFilesView` (`/mon-espace`) | desktop | 99 | 96 | 100 | 82 |
+| `MyFilesView` (`/mon-espace`) | mobile | 98 | 96 | 100 | 82 |
+
+Rapports complets dans `docs/captures/datashare-lighthouse-*.html` (un par
+page × mode).
+
+## Suivi des métriques clés (front)
+
+| Métrique | Budget | Mesure la plus défavorable | Écart |
+| --- | --- | --- | --- |
+| JS initial gzip | ≤ 55 kB | 49,36 kB (`MyFilesView`) | conforme, marge de 5,64 kB |
+| CSS gzip | ≤ 10 kB | 5,86 kB (`MyFilesView`) | conforme, marge de 4,14 kB |
+| Total transféré | ≤ 150 kB | 130,30 kB (`MyFilesView`) | conforme, marge de 19,70 kB |
+| Lighthouse Performance desktop | ≥ 90 | 99 (`MyFilesView`) | conforme |
+| Lighthouse Performance mobile | ≥ 80 | 98 (`MyFilesView`) | conforme |
+| Lighthouse Accessibilité | ≥ 90 | 96 (`DownloadView`, `MyFilesView`) | conforme |
+| Lighthouse Bonnes pratiques | ≥ 90 | 100 (toutes pages) | conforme |
+| Lighthouse SEO | ≥ 80 | 82 (toutes pages) | conforme, marge de 2 points |
+
+## Analyse des optimisations possibles (front)
+
+**SEO à 82 sur les six audits, sans exception.** Le score est identique sur
+toutes les pages et tous les modes, ce qui pointe vers une cause unique et
+statique plutôt que vers un défaut par page : `index.html` (`frontend/`) ne
+porte ni balise `<meta name="description">` ni titre spécifique par route
+(le routeur ne met pas à jour `document.title`). Le référencement n'étant
+pas un enjeu pour une application de partage par liens privés, le budget SEO
+a été recalibré à ≥ 80 plutôt que corrigé (cf. §Budget de performance
+front) — l'action reste néanmoins identifiée : ajouter une meta description
+dans `index.html` et un titre de document par route via le routeur ferait
+passer le SEO au-dessus de 90 et pourrait, au passage, résoudre le point
+d'accessibilité partagé (96) constaté sur `DownloadView` et `MyFilesView` —
+un titre de page absent ou non distinctif est un défaut d'accessibilité
+autant que de référencement. Action identifiée, non réalisée dans ce lot.
+
+**`AppHeader-*.js` domine le JS initial de toutes les pages** (26,31 kB
+transférés sur 46 à 49 kB, selon la page — plus de la moitié). C'est le plus
+gros chunk du bundle (66,64 kB bruts) et il est chargé sans découpage
+supplémentaire sur les six vues du routeur, y compris `NotFoundView`. Une
+scission de l'en-tête entre une partie statique (logo, navigation) et une
+partie dépendante de l'état de session (menu utilisateur connecté) pourrait
+réduire ce poids sur les pages publiques, mais la marge actuelle (5,64 kB sur
+un budget de 55 kB) ne rend pas cette optimisation urgente.
+
+**`DownloadView` et `MyFilesView` perdent 4 points d'Accessibilité par
+rapport à `HomeView`** (96 contre 100), de façon identique entre elles :
+signe d'un défaut partagé plutôt que propre à l'une des deux vues (probable
+contraste ou attribut manquant sur un composant commun aux pages
+authentifiées/à contenu dynamique, par exemple le tableau de fichiers ou la
+zone de statut du téléchargement). Le détail exact figure dans les rapports
+HTML (`docs/captures/datashare-lighthouse-download-*.html` et
+`-myfiles-*.html`, section Accessibilité) — non creusé plus avant ici, le
+score restant très au-dessus du budget (≥ 90).
+
+**Aucune optimisation de charge n'est nécessaire sur les fontes.** Les cinq
+fichiers `woff2` (80,04 kB cumulés) ne sont pas comptés dans le budget JS/CSS
+et n'apparaissent pas comme un goulot dans les audits Lighthouse (scores
+Performance ≥ 98 partout) : le navigateur ne charge que les graisses
+réellement utilisées par la page rendue, pas les cinq à chaque fois.
+
+## Mode d'emploi exact de reproduction (front)
+
+Le répertoire de lancement change selon la commande, comme pour la campagne
+k6 ci-dessus.
+
+```bash
+# Depuis la racine du monorepo — base de données.
+docker compose up -d
+```
+
+```bash
+# Depuis backend/ — API nécessaire pour DownloadView (résolution du token)
+# et MyFilesView (authentifiée) ; HomeView n'en dépend pas mais le protocole
+# démarre systématiquement les trois pour rester reproductible à l'identique.
+cd backend
+php artisan serve
+```
+
+```bash
+# Depuis frontend/ — build de production, jamais `vite dev` : le découpage
+# en chunks et la minification mesurés ne sont réels que sur ce build.
+cd frontend
+npm run build
+npm run preview   # sert http://localhost:4173
+```
+
+```bash
+# Depuis la racine du monorepo — poids du bundle, sortie brute de vite build
+# (déjà capturée dans docs/captures/datashare-front-bundle-*.txt).
+cd frontend && npm run build
+```
+
+Chromium headless est fourni par le binaire déjà téléchargé par Puppeteer
+(aucune installation supplémentaire) :
+
+```bash
+# Chemin exact sur ce poste — à adapter si Puppeteer a été réinstallé
+# ailleurs (le nom du répertoire embarque la version de Chrome).
+ls ~/.cache/puppeteer/chrome/*/chrome-linux64/chrome
+```
+
+Audit d'une page publique sans session (`HomeView`), depuis la racine du
+monorepo :
+
+```bash
+CHROME_PATH=~/.cache/puppeteer/chrome/<version>/chrome-linux64/chrome \
+npx lighthouse http://localhost:4173/ \
+  --output=html --output-path=docs/captures/datashare-lighthouse-home-desktop.html \
+  --preset=desktop --chrome-flags="--headless=new"
+```
+
+Remplacer `--preset=desktop` par `--form-factor=mobile --screenEmulation.mobile`
+pour le mode mobile.
+
+Audit d'une page qui suppose une session authentifiée (`DownloadView`,
+`MyFilesView`) : un profil Chromium persistant porte la session, créée une
+fois en fenêtre visible puis réutilisée en headless.
+
+```bash
+# 1. Fenêtre visible, profil dédié — se connecter manuellement, puis (pour
+#    DownloadView) uploader un fichier et relever l'URL /l/<token> affichée.
+~/.cache/puppeteer/chrome/<version>/chrome-linux64/chrome \
+  --user-data-dir=/tmp/lh-profile http://localhost:4173/login
+
+# 2. Fermer cette fenêtre avant l'étape 3 — un profil Chromium ne peut pas
+#    être ouvert par deux processus en même temps (verrou de session).
+
+# 3. Audit headless avec le même profil, depuis la racine du monorepo.
+CHROME_PATH=~/.cache/puppeteer/chrome/<version>/chrome-linux64/chrome \
+npx lighthouse http://localhost:4173/mon-espace \
+  --output=html --output-path=docs/captures/datashare-lighthouse-myfiles-desktop.html \
+  --preset=desktop --chrome-flags="--headless=new --user-data-dir=/tmp/lh-profile"
+```
+
+Vérifier systématiquement, dans le rapport produit, que l'URL finale
+auditée (`requestedUrl` / `finalDisplayedUrl` du JSON embarqué dans le HTML)
+correspond bien à la page visée — une session expirée ou absente redirige
+silencieusement vers `/login` sans faire échouer Lighthouse, qui auditerait
+alors la page de connexion sans le signaler autrement.
