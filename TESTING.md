@@ -50,11 +50,11 @@ preuve de correction sur le moteur de production.
 | US10 — Purge planifiée *(hors énoncé de l'étape)* | `Files/PurgeTest.php` (11), `Files/PurgeAuditTest.php` (13), `Console/PurgeScheduleTest.php` (4) | Sans objet — aucune interface cliente pour une tâche planifiée serveur | Sans objet — pas de client à exercer |
 | Transversal (sécurité HTTP, audit, journalisation, infra) | `Api/AuditTrailTest.php` (6), `Api/RateLimitLoggingTest.php` (4), `Api/NoStoreHeaderTest.php` (4), `Logging/JsonFormatterTest.php` (1), `DatabaseSmokeTest.php` (2) | `components/AppHeader.spec.ts` (5), `AppFooter.spec.ts` (1), `AppCallout.spec.ts` (8), `views/HomeView.spec.ts` (5), `views/NotFoundView.spec.ts` (2), `router/index.spec.ts` (2), `utils/formatMimeType.spec.ts` (5) | — |
 
-Total : 186 tests backend, 189 tests frontend (16 fichiers), 1 test e2e.
+Total : 190 tests backend, 189 tests frontend (16 fichiers), 1 test e2e.
 
 ## 3. Critères d'acceptation
 
-- Les trois suites sont vertes : 186 tests / 992 assertions côté backend,
+- Les trois suites sont vertes : 190 tests / 1 006 assertions côté backend,
   189 tests côté frontend, 1 test e2e.
 - Les seuils de couverture bloquants sont outillés et respectés :
   70 % côté backend (`composer run test:coverage`, `--min=70`) et 70 % ×
@@ -62,7 +62,7 @@ Total : 186 tests backend, 189 tests frontend (16 fichiers), 1 test e2e.
   (`npm run test:coverage`, seuils dans `vitest.config.ts`) — l'un comme
   l'autre largement dépassés (86,2 % et 96,1 % de lignes, cf. §4).
 - La suite backend rejoue verte sur PostgreSQL, le moteur de production
-  (rejeu du 2026-08-28 : 186 tests, 992 assertions, 6,67 s, base
+  (rejeu du 2026-09-04 : 190 tests, 1 006 assertions, 6,11 s, base
   `datashare_test` — aucun écart de moteur constaté).
 - Le test e2e Cypress est vert sur le parcours complet.
 
