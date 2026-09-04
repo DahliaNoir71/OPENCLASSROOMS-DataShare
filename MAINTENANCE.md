@@ -66,6 +66,18 @@ est désormais aussi automatisée par `security.yml` (audits + scans à chaque
 pull request et chaque lundi 06:00 UTC) — contenu des scans dans
 [SECURITY.md](SECURITY.md).
 
+Les audits `composer audit` et `npm audit` interrogent des services externes —
+le registre Packagist pour PHP, le registre npm pour JavaScript. Une
+indisponibilité de ces registres met la gate au rouge sans aucun défaut du
+code : le problème est côté service. L'étape `npm audit` dans les jobs CI
+rejoue automatiquement jusqu'à trois fois les seules erreurs transitoires
+d'endpoint (503 de courte durée) ; au-delà, aucun retry n'est tenté. La
+procédure est alors de vérifier l'état du registre sur
+[https://status.npmjs.org](https://status.npmjs.org), puis de relancer les
+jobs échoués depuis l'interface GitHub Actions une fois le service rétabli.
+Un incident réel du registre npm le 2026-09-04 a été géré ainsi sans
+conséquence sur le flux.
+
 ### Repérer une faille
 
 Côté backend :
