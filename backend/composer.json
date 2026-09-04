@@ -36,7 +36,7 @@
         "setup": [
             "composer install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
-            "@php artisan key:generate",
+            "@php -r \"if (preg_match('/^APP_KEY=\\s*$/m', file_get_contents('.env'))) { passthru(PHP_BINARY . ' artisan key:generate', \\$rc); if (\\$rc !== 0) exit(\\$rc); } \"",
             "@php -r \"if (preg_match('/^JWT_SECRET=\\s*$/m', file_get_contents('.env'))) { passthru(PHP_BINARY . ' artisan jwt:secret --force', \\$rc); if (\\$rc !== 0) exit(\\$rc); } \"",
             "@php artisan migrate --force"
         ],
