@@ -65,7 +65,7 @@ Total : 194 tests backend, 189 tests frontend (16 fichiers), 3 tests e2e
   (`npm run test:coverage`, seuils dans `vitest.config.ts`) — l'un comme
   l'autre largement dépassés (86,2 % et 96,1 % de lignes, cf. §4).
 - La suite backend rejoue verte sur PostgreSQL, le moteur de production
-  (rejeu du 2026-08-28 : 186 tests, 992 assertions, 6,67 s, base
+  (rejeu du 2026-09-11 : 194 tests, 1 014 assertions, base
   `datashare_test` — aucun écart de moteur constaté).
 - Les trois tests e2e Cypress sont verts : le parcours nominal complet, et
   les deux scénarios d'erreur (mauvais mot de passe de partage, lien

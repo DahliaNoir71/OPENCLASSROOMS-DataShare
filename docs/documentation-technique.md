@@ -159,7 +159,7 @@ Synthèse des quatre documents du plan de suivi, qui restent la référence.
 
 **Tests — [TESTING.md](../TESTING.md).** La pyramide suit la réalité du
 projet : l'essentiel de l'effort porte sur les tests Feature/API côté back
-(190 tests, plus de 1 000 assertions — contrôleurs, règles métier, audit,
+(194 tests, 1 014 assertions — contrôleurs, règles métier, audit,
 sécurité HTTP) et les tests de composants côté front (Vitest + Vue Test
 Utils), un test unitaire pur là où il a du sens, et trois tests end-to-end
 (Cypress) — le parcours utilisateur complet, et deux scénarios d'erreur
