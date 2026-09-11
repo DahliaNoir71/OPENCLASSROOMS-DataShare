@@ -21,6 +21,7 @@ on les attend. Le présent README ne traite que de la mise en route.
 | [docs/mcd.md](docs/mcd.md) | MCD (Merise) et MLD, contraintes, index, décisions de modélisation |
 | [docs/openapi.yaml](docs/openapi.yaml) | Contrat d'API (OpenAPI 3.1) — 9 opérations |
 | [docs/design-tokens.md](docs/design-tokens.md) | Jetons de design de la SPA (couleurs, typographie, espacements) |
+| [docs/guide-utilisateur.md](docs/guide-utilisateur.md) | Guide utilisateur : créer un compte, envoyer un fichier, recevoir un fichier, gérer ses fichiers — écrit pour l'émetteur et le destinataire, sans vocabulaire technique |
 | [docs/utilisation-ia.md](docs/utilisation-ia.md) | Posture d'usage de l'IA générative dans le développement, cycle en trois phases par user story, supervision et correctifs, apports et limites constatés |
 | [TESTING.md](TESTING.md) | Plan de tests, matrice US × niveau, couverture, critères de sortie |
 | [SECURITY.md](SECURITY.md) | Compte rendu de scans en trois seaux (corrigées / acceptées / ignorées) et limites de sécurité assumées |
