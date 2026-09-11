@@ -17,9 +17,10 @@ La pyramide de tests suit la réalité du projet, pas un objectif abstrait :
   backend (contrôleurs, règles métier, audit, sécurité HTTP) et les tests
   de **composants/vues/stores** côté frontend (Vitest + Vue Test Utils) :
   c'est là que vit la logique métier des deux couches.
-- **Un test end-to-end** de parcours critique (Cypress), qui rejoue le
-  chemin utilisateur complet plutôt que de dupliquer les cas déjà couverts
-  unitairement.
+- **Trois tests end-to-end** (Cypress) : un parcours nominal, qui rejoue le
+  chemin utilisateur complet, et deux scénarios d'erreur critiques (mauvais
+  mot de passe de partage, lien expiré) — plutôt que de dupliquer les cas
+  déjà couverts unitairement.
 
 Deux bases de données sont utilisées pour deux usages découplés :
 
@@ -42,20 +43,22 @@ preuve de correction sur le moteur de production.
 | US | Backend (Feature/Unit) | Frontend (composants/vues/stores) | E2E |
 | --- | --- | --- | --- |
 | US01 — Dépôt d'un fichier | `Files/UploadTest.php` (20), `Files/UploadAuditTest.php` (4) | `components/UploadCard.spec.ts` (21), `stores/files.spec.ts` (25, partagé avec US05/US06) | Couvert par le parcours (téléversement) |
-| US02 — Téléchargement par lien public | `Links/DownloadTest.php` (19), `Links/LinkMetadataTest.php` (11), `Links/DownloadAuditTest.php` (6) | `views/DownloadView.spec.ts` (17), `stores/links.spec.ts` (20), `utils/saveBlob.spec.ts` (2) | Couvert par le parcours (lien public, téléchargement vérifié par interception réseau) |
+| US02 — Téléchargement par lien public | `Links/DownloadTest.php` (19), `Links/LinkMetadataTest.php` (11), `Links/DownloadAuditTest.php` (6) | `views/DownloadView.spec.ts` (17), `stores/links.spec.ts` (20), `utils/saveBlob.spec.ts` (2) | Couvert par le parcours (lien public, téléchargement vérifié par interception réseau) et par `erreurs-lien.cy.ts` (mauvais mot de passe, 401) |
 | US03 — Inscription | `Auth/RegisterTest.php` (12) | `views/RegisterView.spec.ts` (9), `stores/auth.spec.ts` (21, partagé avec US04) | Couvert par le parcours (inscription) |
 | US04 — Connexion / déconnexion | `Auth/LoginTest.php` (11), `Auth/SessionTest.php` (6, `/me` + logout) | `views/LoginView.spec.ts` (13), `stores/auth.spec.ts` (21, cf. US03) | Couvert par le parcours (déconnexion) |
 | US05 — Historique des fichiers | `Files/ListFilesTest.php` (28), `Unit/FileScopesTest.php` (2) | `views/MyFilesView.spec.ts` (33), `stores/files.spec.ts` (cf. US01) | Couvert par le parcours (historique) |
 | US06 — Suppression manuelle | `Files/DeleteFileTest.php` (17), `Files/DeleteAuditTest.php` (5) | `views/MyFilesView.spec.ts` (cf. US05, dialogue de suppression) | Couvert par le parcours (suppression) |
-| US10 — Purge planifiée *(hors énoncé de l'étape)* | `Files/PurgeTest.php` (11), `Files/PurgeAuditTest.php` (13), `Console/PurgeScheduleTest.php` (4) | Sans objet — aucune interface cliente pour une tâche planifiée serveur | Sans objet — pas de client à exercer |
+| US09 — Ajout d'un mot de passe à un fichier | `Files/UploadTest.php` (3, création du mot de passe), `Links/DownloadTest.php` (cf. US02, vérification au téléchargement) | `components/UploadCard.spec.ts` (cf. US01, champ mot de passe) | Couvert par `erreurs-lien.cy.ts` (mauvais mot de passe de partage, 401) |
+| US10 — Purge planifiée *(hors énoncé de l'étape)* | `Files/PurgeTest.php` (11), `Files/PurgeAuditTest.php` (13), `Console/PurgeScheduleTest.php` (4) | Sans objet — aucune interface cliente pour une tâche planifiée serveur | `erreurs-lien.cy.ts` couvre la résolution d'un lien expiré (410, via `e2e:expire-link`) — pas la purge planifiée elle-même, dont l'exécution en tâche de fond reste sans client à exercer |
 | Transversal (sécurité HTTP, audit, journalisation, infra) | `Api/AuditTrailTest.php` (6), `Api/RateLimitLoggingTest.php` (4), `Api/NoStoreHeaderTest.php` (4), `Logging/JsonFormatterTest.php` (1), `DatabaseSmokeTest.php` (2) | `components/AppHeader.spec.ts` (5), `AppFooter.spec.ts` (1), `AppCallout.spec.ts` (8), `views/HomeView.spec.ts` (5), `views/NotFoundView.spec.ts` (2), `router/index.spec.ts` (2), `utils/formatMimeType.spec.ts` (5) | — |
 
-Total : 186 tests backend, 189 tests frontend (16 fichiers), 1 test e2e.
+Total : 194 tests backend, 189 tests frontend (16 fichiers), 3 tests e2e
+(2 fichiers).
 
 ## 3. Critères d'acceptation
 
-- Les trois suites sont vertes : 186 tests / 992 assertions côté backend,
-  189 tests côté frontend, 1 test e2e.
+- Les trois suites sont vertes : 194 tests / 1014 assertions côté backend,
+  189 tests côté frontend, 3 tests e2e.
 - Les seuils de couverture bloquants sont outillés et respectés :
   70 % côté backend (`composer run test:coverage`, `--min=70`) et 70 % ×
   4 (lignes/fonctions/branches/statements) côté frontend
@@ -64,7 +67,9 @@ Total : 186 tests backend, 189 tests frontend (16 fichiers), 1 test e2e.
 - La suite backend rejoue verte sur PostgreSQL, le moteur de production
   (rejeu du 2026-08-28 : 186 tests, 992 assertions, 6,67 s, base
   `datashare_test` — aucun écart de moteur constaté).
-- Le test e2e Cypress est vert sur le parcours complet.
+- Les trois tests e2e Cypress sont verts : le parcours nominal complet, et
+  les deux scénarios d'erreur (mauvais mot de passe de partage, lien
+  expiré).
 
 ## 4. Rapports de couverture
 
@@ -109,16 +114,18 @@ Toutes les commandes détaillées (options de filtrage, prérequis) sont au
 | Couverture backend (seuil 70 %) | `backend/` | `composer run test:coverage` |
 | Couverture frontend (seuils 70 % × 4) | `frontend/` | `npm run test:coverage` |
 | Rejeu PostgreSQL | `backend/` | Procédure complète au [README §Tests](README.md#tests) (`createdb` puis variables d'environnement `DB_*`) |
-| End-to-end | `frontend/` | 3 processus : backend (`php artisan serve`), build+preview frontend (`npm run test:e2e`, sert sur le port 4173), avec `DATASHARE_FRONTEND_URL=http://localhost:4173` |
+| End-to-end | `frontend/` | 3 processus : backend (`php artisan serve`), build+preview frontend (`npm run test:e2e`, sert sur le port 4173), avec `DATASHARE_FRONTEND_URL=http://localhost:4173`. Le scénario du lien expiré appelle `php artisan e2e:expire-link` via `cy.exec` (depuis `frontend/`, `cd ../backend`) : suppose donc `backend/.env` présent et PHP disponible dans l'environnement qui exécute Cypress |
 
 ## 6. Limites et pistes
 
 - **E2E mono-navigateur** : le test Cypress ne s'exécute que sur le
   navigateur du runner par défaut ; aucune matrice multi-navigateurs
   n'est en place.
-- **E2E mono-parcours** : un seul scénario nominal est couvert ; les
-  scénarios d'erreur (mot de passe incorrect, lien expiré, quota dépassé)
-  sont couverts au niveau composant/store, pas en e2e.
+- **E2E scénarios restants** : le mot de passe incorrect et le lien expiré
+  sont désormais couverts en e2e ; restent au niveau composant/store
+  seulement — le quota dépassé (429) et l'extension de fichier refusée
+  (422). La purge planifiée (US10) n'a par nature aucun client e2e à
+  exercer (cf. §2).
 - **US10 sans test client** : la purge planifiée n'a ni interface ni
   parcours utilisateur — seule sa logique serveur est testée
   (cf. §2). C'est un choix motivé par l'absence de client, pas un angle

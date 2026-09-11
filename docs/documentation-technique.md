@@ -161,8 +161,9 @@ Synthèse des quatre documents du plan de suivi, qui restent la référence.
 projet : l'essentiel de l'effort porte sur les tests Feature/API côté back
 (190 tests, plus de 1 000 assertions — contrôleurs, règles métier, audit,
 sécurité HTTP) et les tests de composants côté front (Vitest + Vue Test
-Utils), un test unitaire pur là où il a du sens, et un parcours end-to-end
-critique (Cypress) qui rejoue le chemin utilisateur complet. Couverture :
+Utils), un test unitaire pur là où il a du sens, et trois tests end-to-end
+(Cypress) — le parcours utilisateur complet, et deux scénarios d'erreur
+critiques (mot de passe incorrect, lien expiré). Couverture :
 seuil bloquant de 70 % des deux côtés (pcov côté PHP, v8 côté front),
 rapports capturés dans `docs/captures/`. Deux bases pour deux usages :
 SQLite pour la boucle courte, PostgreSQL pour la CI de conformité.
