@@ -52,13 +52,14 @@ back-ends, trois front-ends, deux bases, deux stockages). Choix retenus :
 
 | Élément | Technologie choisie | Alternatives (spec) | Justification |
 | --- | --- | --- | --- |
-| Langage back | PHP 8.3 | Java, C#, TypeScript | Expérience préalable significative (Laravel, PHP MVC) : la productivité et la qualité de relecture priment sur la découverte d'un langage, dans un projet où l'IA générative doit être supervisée de près |
-| Framework back | Laravel 13 | Spring Boot, .NET Core, NestJS, Symfony | Couvre nativement les besoins des US : validation déclarative, façade `Storage` (local/S3 interchangeables), scheduler intégré (purge US10), hachage bcrypt, limiteurs de débit ; écosystème de test mature (`artisan test`) |
+| Langage serveur | PHP 8.3 | Java, C#, TypeScript | Compétence présente dans l'équipe ; langage le plus répandu pour le web, reprise facile par un tiers |
+| Framework serveur | Laravel 13 | Spring Boot, .NET Core, NestJS, Symfony | Conventions fortes : un développeur Laravel s'y retrouve sans guide ; validation déclarative, hachage bcrypt, limiteurs de débit, façade `Storage` (local / S3 interchangeables) et scheduler intégré fournis par le framework, pas réécrits ; écosystème de test mature |
 | Authentification | JWT via `php-open-source-saver/jwt-auth` | Sessions à cookie | Exigence de la spec (« Authentification JWT ») ; API sans état, front libre de son hébergement ; révocation compensée par liste noire en cache |
-| Framework front | Vue 3 + TypeScript | Angular, React | Composants monofichiers lisibles, courbe d'apprentissage douce, TypeScript pour la robustesse des contrats d'API ; outillage Vite (build, HMR) |
-| Base de données | PostgreSQL 17.5 | MongoDB | Données nativement relationnelles (un utilisateur, N fichiers) ; contraintes d'intégrité portées par le SGBD : unicité insensible à la casse sur l'email (`LOWER(email)`), FK `ON DELETE CASCADE`, index sur `expires_at` pour le balayage de purge |
-| Stockage fichiers | Système de fichiers local via façade `Storage` | AWS S3 | Suffisant pour le prototype, zéro dépendance externe ; la façade rend la migration S3 purement configurative |
-| Versionnement et CI | Git + GitHub (PR, ruleset sur `main`, GitHub Actions) | GitLab | Historique propre en conventional commits ; `main` protégée par un check unique `ci-ok` agrégeant lint, tests, e2e et sécurité |
+| Langage client | TypeScript | JavaScript | Les erreurs de contrat d'API sont détectées à la compilation, pas par l'utilisateur |
+| Framework client | Vue 3 | Angular, React | Composants monofichiers lisibles, courbe d'apprentissage douce ; la maquette Figma se transpose écran par écran ; outillage Vite |
+| Base de données | PostgreSQL 17.5 | MongoDB | Données relationnelles (un compte, ses fichiers) ; unicité d'email insensible à la casse, suppression en cascade et index d'expiration garantis par la base elle-même |
+| Stockage | Disque local, hors racine web | AWS S3 | Suffisant pour le MVP ; passage à S3 prévu par configuration du driver, non testé à ce jour — le choix relais PHP vs URL signée reste à arbitrer au premier déploiement |
+| Dépôt et intégration | GitHub, GitHub Actions | GitLab | Un seul outil pour le code, la revue et les vérifications automatiques avant fusion |
 | Conteneurisation | Docker Compose (PostgreSQL seul) | — | Base reproductible sans installer PostgreSQL sur l'hôte ; healthcheck `pg_isready` exploité par les scripts de déploiement (`--wait`) |
 | Qualité de code | Pint (PHP), ESLint/outillage Vite (front), lint markdown | — | Rejoués en CI à chaque push (feedback rapide) et chaque PR (gate complète) |
 | Assistance IA | Claude (analyse, arbitrages) + Claude Code (exécution supervisée) | — | Posture détaillée en section 8 |
