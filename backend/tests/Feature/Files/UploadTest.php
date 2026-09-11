@@ -154,7 +154,7 @@ class UploadTest extends TestCase
      */
     public function test_upload_with_an_empty_expires_in_days_defaults_to_seven_days(): void
     {
-        $instant = now()->startOfSecond();
+        $instant = $this->freezeSecond();
         $token = $this->login($this->user());
         $file = UploadedFile::fake()->create('document.pdf', 100);
 
@@ -175,7 +175,7 @@ class UploadTest extends TestCase
 
     public function test_upload_with_a_null_expires_in_days_defaults_to_seven_days(): void
     {
-        $instant = now()->startOfSecond();
+        $instant = $this->freezeSecond();
         $token = $this->login($this->user());
         $file = UploadedFile::fake()->create('document.pdf', 100);
 
@@ -205,7 +205,7 @@ class UploadTest extends TestCase
             'datashare.uploads.max_expiry_days' => 3,
         ]);
 
-        $instant = now()->startOfSecond();
+        $instant = $this->freezeSecond();
         $token = $this->login($this->user());
         $file = UploadedFile::fake()->create('document.pdf', 100);
 
